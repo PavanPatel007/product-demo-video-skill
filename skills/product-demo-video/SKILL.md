@@ -1,0 +1,235 @@
+---
+name: product-demo-video
+description: >-
+  Creates product demo, launch, and promo videos rendered from code, tuned for Claude Opus 5.5:
+  checks the model, asks a minimal set of intake questions (including an optional AI voiceover
+  with ElevenLabs, OpenAI, Google or Azure), captures the real product, plans shots on a beat
+  grid, builds a deterministic seek(t) canvas animation, critiques its own frames until every
+  score is 8+, renders MP4s in 16:9, 9:16 and 1:1 with synthesized music, SFX and voice, and
+  ends with a token and cost report. Use when the user asks for a product demo video, launch
+  video, app promo, walkthrough video, product reel, motion ad, or animated explainer.
+---
+
+# Product Demo Video (Opus 5.5 motion studio)
+
+The model writes a program, not a video: `index.html` exposes `window.seek(t)`, headless Chrome
+paints every frame, ffmpeg encodes. The prompt is 10% of the result; the harness (real assets,
+springs, beat grid, critique loop) is the other 90%.
+
+`SKILL_DIR` below means the folder containing this file (e.g. `~/.claude/skills/product-demo-video`,
+`~/.cursor/skills/product-demo-video`, `~/.codex/skills/product-demo-video`, or `skills/product-demo-video`
+in a cloned repo).
+
+**Asking questions.** Whenever this skill says "ask", use your structured question tool if you
+have one (Cursor `AskQuestion`, Claude Code `AskUserQuestion`, ...). Otherwise print the options
+as a numbered list, first option = recommended, and wait for the reply. Ask each round in one turn.
+
+## Step 0a: Model check (gentle reminder)
+
+You know which model you are. If it is **Claude Opus 5.5**, say nothing and go to Step 0b.
+
+Otherwise, before anything else, show this once (fill in your model name) and ask:
+
+> Quick heads-up: this skill is tuned for **Claude Opus 5.5**. You're on **<your model>**.
+> It will still work, but Opus 5.5 is noticeably better at the motion design, layout and
+> self-critique this needs. To switch: Claude Code `/model` → Opus 5.5 · Cursor: the model
+> picker under the chat box · Codex / other agents: pick a Claude Opus 5.5 model in settings or
+> your API provider (Anthropic, Bedrock, Vertex, OpenRouter). Use high thinking effort
+> (max for flagship launches).
+
+Question `model`: "Continue on this model or switch first?"
+1. Switch to Opus 5.5 first (Recommended): stop here; the user re-runs the skill after switching.
+2. Continue with <your model>.
+
+Never block: if they continue, use the same workflow with no shortcuts.
+
+## Step 0b: Toolchain and voice check (silent)
+
+```bash
+node SKILL_DIR/studio/doctor.mjs
+```
+
+It checks node, ffmpeg, Playwright, and which voice API keys exist in `.env` or the environment
+(names only, never values). Run it from the project folder once Step 1 has created it; before
+that, run it from any folder just to read the voice providers. Fix missing tools yourself where
+you can (`npm i`, `npx playwright install chromium`); tell the user only what needs them
+(e.g. installing ffmpeg).
+
+## Step 0c: Intake (the minimal questions)
+
+Skip anything the user already answered. In plain text, ask only for what can't be multiple choice:
+> What's the product URL? Optional: the 3 features to show, one proof number, and the CTA.
+> If the app is behind a login: test credentials (I'll keep them in `.env` and only look, never change data).
+
+Then ask these in one round (first option = recommended / default):
+
+| id | Prompt | Options |
+|----|--------|---------|
+| `style` | What kind of demo? | Launch reel: hook, UI in action, 3 features, proof, CTA (Recommended) · Product walkthrough: real app screens, cursor and highlights · UI morph loop: one shape morphs through 8-12 real UI states · Flagship film, 45 s+ |
+| `length` | How long? | 20-30 s (Recommended) · 15 s · 45-60 s |
+| `format` | Which formats? | 16:9 for web and decks (Recommended for walkthroughs) · 9:16 first, then 1:1 and 16:9 (Recommended for social) · 9:16 only · 1:1 only |
+| `music` | Music? | Original track synthesized in code + UI sounds (Recommended) · I'll supply a track (`audio/track.wav`) · No music |
+| `voice` | Add an AI voiceover? | built from doctor output, see below |
+| `reference` | Visual reference? | None, use the product's own brand (Recommended) · Neutral house style · Both: render two versions · A screenshot/frame I'll attach · A video or link |
+
+**`voice` options, always in this order.** Mark each `(key found)` or `(needs KEY_NAME in .env)`
+from the doctor output:
+1. ElevenLabs, most natural voices (Recommended)
+2. OpenAI TTS
+3. Google Cloud TTS
+4. Azure AI Speech
+5. Free local voice (macOS `say` / espeak), for drafts and timing only
+6. No voiceover (music and sound effects only)
+
+If they pick a provider without a key: tell them to add `KEY_NAME=...` to `.env` in the project
+folder (template: `SKILL_DIR/studio/env.example`). **Never ask them to paste a key in chat.**
+Offer to continue meanwhile with the free local voice for timing and swap the real voice in
+before the final render.
+
+If the user says "just go", use every default (no voiceover) and infer features, metric and CTA
+from the site.
+
+## Step 1: Studio setup
+
+Work in a dedicated project folder (e.g. `~/Projects/<product>-demo`), not the home directory.
+
+```bash
+cp -R SKILL_DIR/studio/. .
+cp house-rules.md AGENTS.md && cp house-rules.md CLAUDE.md
+cp env.example .env              # if it doesn't exist; user fills in only what they use
+printf '.env\n.auth.json\nnode_modules/\nout/\ndeliver/\n*.mp4\naudio/vo/\n' >> .gitignore
+chmod +x mix.sh check.sh
+mkdir -p assets/screens audio docs refs out
+npm i && npx playwright install chromium
+node doctor.mjs                  # must be all ✓ for required tools
+# only for a supplied music track:  pip install numpy librosa soundfile
+```
+
+Follow `AGENTS.md` (the house rules) for everything below. Note the start time; you'll
+report total time at the end.
+
+## Step 2: Capture real assets
+
+```bash
+node capture-site.mjs https://product.com               # hero, full page, sections, brand.json (colors, fonts, logo)
+node capture-app.mjs /dashboard /reports                # logged-in app (APP_URL/APP_EMAIL/APP_PASSWORD in .env), read-only
+node capture-parts.mjs /dashboard                       # crops cards/panels so they can animate separately
+node probe-targets.mjs targets.json                     # CSS boxes of text you'll ring or click → assets/targets.json
+```
+
+Download the fonts listed in `assets/brand.json` to `assets/fonts/` and declare them with
+`@font-face`. Write `assets/README.md` listing every file and what it shows. Never invent
+screens or numbers.
+
+Capture gotchas:
+- `networkidle` hangs on sites with live trackers; the scripts use `load` plus a delay.
+- Apps often scroll inside an inner pane, so `fullPage` adds nothing. Use a tall viewport
+  (`--h 3200`) and crop parts from DOM boxes.
+- Off-canvas drawers (x > viewport) break clips and add shadows; the scripts skip them.
+- Never click anything that writes data (save, delete, send, publish, logout).
+
+## Step 3: Brief, style guide, script, beat grid
+
+1. Pick the template in [briefs.md](briefs.md) matching `style` (A launch reel, B UI morph,
+   D flagship; walkthroughs use A with real app screens). Append C if there's a voiceover.
+   Fill it and save `docs/brief.md`.
+2. `docs/style_guide.md`: from the reference (see "Reference extraction" in briefs.md),
+   otherwise from `assets/brand.json`. Palette in hex, one display face, one UI face, one accent.
+   For "Both", define the second look as `THEMES.house` in `index.html`.
+3. Beat grid:
+   - Synthesized: `node music.mjs --dur <seconds> --bpm 120` → `audio/music.wav` + `audio/beats.json`.
+   - Supplied track: `python3 beats.py audio/track.wav > audio/beats.json`.
+4. Voiceover: follow [voiceover.md](voiceover.md). Write `vo_script.json` (one line per shot,
+   ~2.3 words per second), pick the voice, generate, fix overruns. Shots then start on line times.
+
+## Step 4: Shot list gate (the only other time you stop)
+
+Write `docs/shotlist.md` on the beat grid. Every shot: time range, what's on screen (naming the
+asset file), camera move, on-screen text, voice line (if any), SFX cue. Rules: hook in the
+first 2 s, something new every 2-4 s, one proof metric, logo + CTA at the end.
+
+Show the shot list compactly (and the voice name, if any) and ask for OK. Apply changes, then
+continue without stopping until delivery.
+
+## Step 5: Build
+
+Edit `index.html`: set `DUR`, `THEMES.brand`, `FONTS`, `ASSETS`, then replace the example
+`SCENES` with one object per shot. The helper kit is ready: `words()` (kinetic headline with
+highlight), `label()`, `shot()` (screenshot card or sub-rect), `ring()`, `cursor()`, `ripple()`,
+`pill()`, `logo()`, `exitFx()`, `withAlpha()`. Use `sp(t, 'snappy'|'base'|'heavy'|'playful')`
+for entrances and `track()` for anything with several targets (cursor, camera). Lay out in
+design units with `DW`, `DH`, `PORTRAIT`, `SQUARE` so one timeline reframes per format.
+Ring and click on real boxes from `assets/targets.json`. Write `sfx_cues.json`
+(`[{"t": 2.5, "type": "click"}]`, types: click, pop, thump, whoosh, chime, optional `gain`).
+
+## Step 6: Critique loop (minimum 3 rounds)
+
+```bash
+node render.mjs --w 1920 --h 1080 --stills 0.5,1.5,3,4.5,6,...      # one per beat or shot
+node render.mjs --w 1920 --h 1080 --stills ... --query theme=house   # second look, if any
+```
+
+Open `out/stills/contact.png` with your file/image reading tool and actually look at it. Run the
+"Critique pass" from [briefs.md](briefs.md), fix the 3 worst problems, log scores in
+`docs/review_log.md`, re-render stills. Stop only when every score is 8+ and at least 3 rounds
+are done. For 45 s+ films, render an animatic first: `--w 960 --h 540 --sub 1`.
+
+## Step 7: Render, mix, check
+
+Per format (16:9 `1920x1080`, 9:16 `1080x1920`, 1:1 `1080x1080`) and per theme:
+
+```bash
+node render.mjs --w 1920 --h 1080 --sub 1 --out out/silent_16x9.mp4
+node sfx.mjs sfx_cues.json out/sfx.wav
+./mix.sh out/silent_16x9.mp4 deliver/final_16x9.mp4 audio/music.wav out/sfx.wav [--voice audio/voice.wav]
+./check.sh deliver/final_16x9.mp4 <seconds-of-fastest-action>
+```
+
+`--sub 1` for screenshot-heavy demos (blended subframes double-expose small text during fast
+moves); `--sub 4` for pure motion graphics. Grab 2-3 full-res frames mid-move from the final
+MP4 (`ffmpeg -ss <t> -i final.mp4 -frames:v 1 out/f.png`) and look for ghosting.
+
+Open `out/check/contact.png`, `strip.png` and `phone.png` and run the critique pass on the real
+render; fix and re-render anything below 8. With a voiceover, listen-check by reading
+`audio/vo_timing.json`: every line must start on its shot and none may overrun.
+Confirm loudness: `ffmpeg -i final.mp4 -af ebur128 -f null - 2>&1 | tail -12` shows about -14 LUFS.
+
+## Step 8: Deliver and report cost
+
+```bash
+node cost-report.mjs --video deliver/final_16x9.mp4
+```
+
+It reads exact token usage from Claude Code or Codex session logs for this folder (newest
+session; `--all-sessions` for everything), adds the voice API cost from `audio/vo_usage.json`,
+prices it with `pricing.json`, and writes `out/cost_report.md`. If no log is found (Cursor and
+other IDEs don't expose usage to the agent), ask the user for the numbers on their usage page
+and re-run with `--model claude-opus-5-5 --input N --output N --cache-read N --cache-write N`.
+Only if they can't, use `--transcript <chat.jsonl>` and call the result a lower-bound estimate.
+
+Report in this order:
+1. The final MP4 paths; embed `out/check/poster.png` and `out/check/contact.png` inline.
+2. One line, filled from the report: **"This N-second video used X tokens and cost about $Y
+   (Z per second of video), plus $V for the voiceover."** Mention if it's an estimate, and that
+   subscription plans bill differently from API rates.
+3. Final critique scores and the 2-3 things you'd improve next.
+
+Keep the folder: follow-up edits are a one-line change plus re-render, and a second video for
+the same brand reuses the whole studio.
+
+## Hard rules
+
+- Real product UI only. Never invent screens, features, metrics or testimonials.
+- No Math.random, timers, CSS transitions or carried state in render mode.
+- Banned: centered title on gradient, everything fading in, corner labels/frame borders.
+- API keys and passwords only in `.env`; refer to them by variable name; never print them.
+- Logged-in apps are read-only: navigate and screenshot, never change data.
+
+## Additional resources
+
+- Brief templates and the critique prompt: [briefs.md](briefs.md)
+- Voiceover providers, voices and script timing: [voiceover.md](voiceover.md)
+- Studio files copied into each project: `studio/` (render.mjs, lib/, capture-*.mjs, doctor.mjs,
+  voiceover.mjs, music.mjs, sfx.mjs, beats.py, mix.sh, check.sh, cost-report.mjs, pricing.json,
+  house-rules.md, index.html, env.example)
+- Method source: [How to build motion design studio with Opus 5.5](https://x.com/0xMovez/status/2104216919033192746)

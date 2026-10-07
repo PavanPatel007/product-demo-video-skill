@@ -1,0 +1,16 @@
+{
+  "_note": "USD. Model prices per 1M tokens, checked 2026-10-07 against https://platform.claude.com/docs/en/about-claude/pricing. Voice prices are approximate per-1k-character list rates; your plan may differ. Edit freely.",
+  "models": {
+    "claude-opus-5-5": { "input": 4, "output": 20, "cache_write_5m": 5, "cache_write_1h": 8, "cache_read": 0.2 },
+    "claude-opus-5": { "input": 5, "output": 25, "cache_write_5m": 6.25, "cache_write_1h": 10, "cache_read": 0.5 },
+    "claude-sonnet-5-5": { "input": 2, "output": 10, "cache_write_5m": 2.5, "cache_write_1h": 4, "cache_read": 0.2 },
+    "claude-opus-4-5": { "input": 5, "output": 25, "cache_write_5m": 6.25, "cache_write_1h": 10, "cache_read": 0.5 }
+  },
+  "voice_per_1k_chars": {
+    "elevenlabs": 0.22,
+    "openai": 0.015,
+    "google": 0.016,
+    "azure": 0.015,
+    "local": 0
+  }
+}

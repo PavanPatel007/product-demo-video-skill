@@ -1,0 +1,4 @@
+{"type":"session_meta","payload":{"id":"s1","cwd":"__CWD__","originator":"codex_cli_rs"}}
+{"type":"turn_context","payload":{"cwd":"__CWD__","model":"gpt-5.5-codex"}}
+{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":120000,"cached_input_tokens":90000,"output_tokens":3000,"reasoning_output_tokens":500,"total_tokens":123500}}}}
+{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":200000,"cached_input_tokens":150000,"output_tokens":5000,"reasoning_output_tokens":1000,"total_tokens":206000}}}}

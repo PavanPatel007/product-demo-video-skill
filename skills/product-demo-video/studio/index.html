@@ -1,0 +1,239 @@
+<!doctype html>
+<meta charset="utf-8">
+<style>
+/* Declare captured brand fonts here, e.g.
+@font-face { font-family: 'Brand Sans'; src: url(assets/fonts/brand-sans.woff2) format('woff2'); font-weight: 100 900; } */
+html,body{margin:0;background:#000}canvas{display:block;max-width:100vw;max-height:100vh}
+</style>
+<canvas id="c"></canvas>
+<script src="lib/motion.js"></script>
+<script>
+const Q = new URLSearchParams(location.search);
+const W = +Q.get('w') || 1920, H = +Q.get('h') || 1080, DUR = 10;
+const c = document.getElementById('c'); c.width = W; c.height = H;
+const g = c.getContext('2d');
+// Design space: the short side is always 1080 units, so one layout scales to any resolution.
+// Lay out with DW, DH and PORTRAIT/SQUARE; never with raw pixels for one format.
+const S = Math.min(W, H) / 1080, DW = W / S, DH = H / S;
+const PORTRAIT = H > W * 1.1, SQUARE = !PORTRAIT && W < H * 1.1;
+const U = 1;   // kept for older scenes; 1 design unit
+
+// One timeline, several looks: render with --query theme=house
+const THEMES = {
+  brand: {   // fill from assets/brand.json (captured colors + fonts)
+    bg: '#FAF9F6', fg: '#0F172A', muted: '#4A4560', faint: '#8A8699', accent: '#4F46E5', onAccent: '#FFFFFF',
+    band: '#F3E7CE', panel: '#FFFFFF', shadow: 'rgba(15,23,42,0.12)', shadowBlur: 50,
+    display: 'Inter, system-ui, sans-serif', dw: 700, track: -0.03, ui: 'Inter, system-ui, sans-serif', uw: 500,
+    mono: 'ui-monospace, Menlo, monospace', mw: 500, mtrack: 0.12, grid: false, wordBand: true, cursor: '#0F172A',
+  },
+  house: {   // neutral anti-slop look that works for any product
+    bg: '#111110', fg: '#F2F0EA', muted: '#A8A59C', faint: '#6E6B64', accent: '#3DDC84', onAccent: '#0B0B0A',
+    band: '#3DDC84', panel: '#1C1B19', shadow: 'rgba(0,0,0,0.6)', shadowBlur: 80,
+    display: 'Inter, system-ui, sans-serif', dw: 800, track: -0.035, ui: 'Inter, system-ui, sans-serif', uw: 600,
+    mono: 'Inter, system-ui, sans-serif', mw: 600, mtrack: 0.14, grid: true, wordBand: false, cursor: '#FFFFFF',
+  },
+};
+const T = THEMES[Q.get('theme')] || THEMES.brand;
+const FONTS = [`${THEMES.brand.dw} 40px Inter`, `${THEMES.house.dw} 40px Inter`, '500 40px Inter'];
+
+// Real product assets only (captured into ./assets). Missing files fail the render loudly.
+const ASSETS = {
+  // logo: 'assets/logo.svg',
+  // dash: 'assets/screens/app_dashboard.png',
+};
+const IMG = {};
+window.ready = Promise.all([
+  ...FONTS.map((f) => document.fonts.load(f)),
+  ...Object.entries(ASSETS).map(([k, src]) => new Promise((res, rej) => {
+    const i = new Image();
+    i.onload = () => { IMG[k] = i; res(); };
+    i.onerror = () => rej(new Error('missing asset ' + src));
+    i.src = src;
+  })),
+]);
+
+// ---------- helper kit (design units) ----------
+const fontD = (size) => `${T.dw} ${size}px ${T.display}`;
+const fontU = (size, w = T.uw) => `${w} ${size}px ${T.ui}`;
+const fontM = (size) => `${T.mw} ${size}px ${T.mono}`;
+// Scene-level opacity: exits and swaps multiply into every element, so nothing pops back.
+let SA = 1;
+const alpha = (a) => { g.globalAlpha = clamp(a) * SA; };
+const withAlpha = (a, fn) => { const p = SA; SA *= clamp(a); g.globalAlpha = SA; fn(); SA = p; g.globalAlpha = SA; };
+function rrect(x, y, w, h, r) { g.beginPath(); g.roundRect(x, y, w, h, r); }
+
+// Small uppercase kicker.
+function label(text, x, y, t, { size = 20, color = T.faint, align = 'left' } = {}) {
+  const s = sp(t, 'base');
+  g.save(); alpha(s * 1.4);
+  g.font = fontM(size); g.letterSpacing = `${size * T.mtrack}px`;
+  g.fillStyle = color; g.textAlign = align; g.textBaseline = 'alphabetic';
+  g.fillText(text.toUpperCase(), x + (1 - s) * -20, y);
+  g.restore();
+}
+
+// Kinetic words: each word rises on its own spring. hi = word indices to highlight. Returns block height.
+function words(text, x, y, t, { size = 80, color = T.fg, maxW = DW - 240, lh = 1.12, align = 'left', hi = [], stagger = 0.075, weight } = {}) {
+  g.save();
+  g.font = weight ? `${weight} ${size}px ${T.display}` : fontD(size);
+  g.letterSpacing = `${size * T.track}px`; g.textBaseline = 'alphabetic';
+  const space = g.measureText(' ').width;
+  const lines = [[]]; let lw = 0;
+  for (const w of text.split(' ')) {
+    const ww = g.measureText(w).width;
+    if (lw + ww > maxW && lines[lines.length - 1].length) { lines.push([]); lw = 0; }
+    lines[lines.length - 1].push(w); lw += ww + space;
+  }
+  let i = 0;
+  lines.forEach((ln, li) => {
+    const total = ln.reduce((a, w) => a + g.measureText(w).width, 0) + space * (ln.length - 1);
+    let cx = align === 'center' ? x - total / 2 : x;
+    const cy = y + li * size * lh;
+    ln.forEach((w, j) => {
+      const ww = g.measureText(w).width, s = sp(t - i * stagger, 'heavy');
+      const isHi = hi.includes(i), joinNext = isHi && j < ln.length - 1 && hi.includes(i + 1);
+      if (isHi && T.wordBand) {
+        const b = sp(t - i * stagger - 0.25, 'snappy');
+        alpha(1); g.fillStyle = T.band;
+        g.fillRect(cx - size * 0.08, cy - size * 0.86, (ww + size * 0.16 + (joinNext ? space : 0)) * clamp(b), size * 1.08);
+      }
+      alpha(s * 1.6);
+      g.fillStyle = isHi && !T.wordBand ? T.accent : color; g.textAlign = 'left';
+      g.fillText(w, cx, cy + (1 - s) * size * 0.55);
+      cx += ww + space; i++;
+    });
+  });
+  g.restore();
+  return lines.length * size * lh;
+}
+
+// Screenshot (or a sub-rect [sx, sy, sw, sh] of one) as a card. Placeholder until the asset exists.
+function shot(img, x, y, w, { src, radius = 22, s = 1, a = 1, shadow = true } = {}) {
+  const [sx, sy, sw, sh] = src || (img ? [0, 0, img.width, img.height] : [0, 0, 16, 10]);
+  const h = w * sh / sw;
+  g.save(); alpha(a);
+  g.translate(x + w / 2, y + h / 2); g.scale(s, s); g.translate(-w / 2, -h / 2);
+  if (shadow) {
+    g.shadowColor = T.shadow; g.shadowBlur = T.shadowBlur; g.shadowOffsetY = T.shadowBlur * 0.35;
+    rrect(0, 0, w, h, radius); g.fillStyle = T.panel; g.fill(); g.shadowColor = 'transparent';
+  }
+  rrect(0, 0, w, h, radius); g.clip();
+  if (img) g.drawImage(img, sx, sy, sw, sh, 0, 0, w, h);
+  else {
+    g.fillStyle = T.faint; alpha(a * 0.25);
+    for (let k = 0; k < 6; k++) g.fillRect(w * 0.06, h * (0.14 + k * 0.13), w * (0.3 + 0.5 * ((k * 37) % 7) / 7), h * 0.05);
+  }
+  g.restore();
+  return h;
+}
+
+// Accent outline that settles onto a real UI element (use boxes from assets/targets.json).
+function ring(x, y, w, h, p, { r = 12, color = T.accent, lw = 4 } = {}) {
+  if (p <= 0) return;
+  const e = (1 - clamp(p)) * 16;
+  g.save(); alpha(p * 2);
+  rrect(x - e, y - e, w + e * 2, h + e * 2, r + e); g.strokeStyle = color; g.lineWidth = lw; g.stroke();
+  g.restore();
+}
+
+function cursor(x, y, press = 0, a = 1) {
+  g.save(); alpha(a);
+  g.translate(x, y); g.scale(1.25 * (1 - 0.15 * press), 1.25 * (1 - 0.15 * press));
+  g.shadowColor = 'rgba(0,0,0,0.25)'; g.shadowBlur = 8; g.shadowOffsetY = 3;
+  g.beginPath(); g.moveTo(0, 0); g.lineTo(0, 30); g.lineTo(8, 23); g.lineTo(14, 36);
+  g.lineTo(19, 34); g.lineTo(13, 21); g.lineTo(24, 21); g.closePath();
+  g.fillStyle = T.cursor; g.fill(); g.shadowColor = 'transparent';
+  g.strokeStyle = T.cursor === '#FFFFFF' ? '#0B0B0A' : '#FFFFFF'; g.lineWidth = 2; g.stroke();
+  g.restore();
+}
+
+function ripple(x, y, t) {
+  if (t <= 0 || t > 0.5) return;
+  g.save(); g.beginPath(); g.arc(x, y, 46 * sp(t, 'snappy'), 0, Math.PI * 2);
+  g.strokeStyle = T.accent; alpha(1 - t / 0.5); g.lineWidth = 4; g.stroke(); g.restore();
+}
+
+function pill(text, cx, cy, s, { fill = T.accent, color = T.onAccent, size = 30, padX = 40, h = 76, a = 1 } = {}) {
+  g.save(); g.font = fontU(size, 600); g.letterSpacing = '0px';
+  const w = g.measureText(text).width + padX * 2, ww = w * clamp(s, 0, 1.2);
+  alpha(a); rrect(cx - ww / 2, cy - h / 2, ww, h, h / 2); g.fillStyle = fill; g.fill();
+  alpha(clamp((s - 0.5) * 3) * a);
+  g.fillStyle = color; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(text, cx, cy + 1);
+  g.restore();
+  return w;
+}
+
+// Logo image if captured, otherwise the product name set in the display face.
+function logo(cx, cy, w, s = 1, name = 'Product') {
+  g.save(); alpha(s * 1.5);
+  g.translate(cx, cy); g.scale(0.85 + 0.15 * s, 0.85 + 0.15 * s);
+  if (IMG.logo) { const h = w * IMG.logo.height / IMG.logo.width; g.drawImage(IMG.logo, -w / 2, -h / 2, w, h); }
+  else { g.font = fontD(w / 4); g.fillStyle = T.fg; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(name, 0, 0); }
+  g.restore();
+}
+
+// Scene exit over the last 0.22 s: slide left + fade, applied to everything via SA.
+function exitFx(t, len) {
+  const k = clamp((t - (len - 0.22)) / 0.22) ** 2;
+  g.translate(-140 * k, 0); SA = 1 - k; g.globalAlpha = SA;
+}
+
+// ---------- scenes (replace with one object per shot from docs/shotlist.md) ----------
+const SCENES = [
+  { from: 0, to: 2.5, draw(t, len) {                                  // hook: the problem, huge, in 2 s
+      exitFx(t, len);
+      const size = PORTRAIT || SQUARE ? 120 : 150;
+      words('Stop losing leads.', DW / 2, DH / 2, t, { size, align: 'center', hi: [2], maxW: DW - 160 });
+  }},
+  { from: 2.5, to: 7, draw(t, len) {                                  // product: real UI, cursor does a real action
+      exitFx(t, len);
+      const cw = PORTRAIT ? DW - 120 : DW * 0.62;
+      const s = sp(t, 'heavy');
+      const ch = cw * (IMG.dash ? IMG.dash.height / IMG.dash.width : 10 / 16);
+      const x = (DW - cw) / 2, y = PORTRAIT ? DH * 0.42 : (DH - ch) / 2 + 30;
+      if (PORTRAIT) words('Every lead, one inbox.', 60, DH * 0.26, t - 0.2, { size: 84, maxW: DW - 120 });
+      else label('Inbox', x, y - 30, t - 0.1, { size: 22 });
+      shot(IMG.dash, x, y + (1 - s) * 60, cw, { a: s * 1.5, s: 0.94 + 0.06 * s });
+      const tx = x + cw * 0.3, ty = y + ch * 0.38;
+      const cx = track(t, [[0, x + cw + 80], [0.8, tx + 40], [1.6, tx]], 170, 26);
+      const cy = track(t, [[0, y + ch + 80], [0.8, ty + 30], [1.6, ty]], 170, 26);
+      ring(tx - cw * 0.06, ty - ch * 0.05, cw * 0.4, ch * 0.1, sp(t - 2.0, 'snappy'));
+      ripple(cx, cy, t - 1.9);
+      cursor(cx, cy, clamp(1 - Math.abs(t - 1.9) / 0.12), clamp(t * 3));
+  }},
+  { from: 7, to: DUR, draw(t) {                                       // logo + CTA
+      logo(DW / 2, DH / 2 - 90, PORTRAIT ? 560 : 480, sp(t, 'heavy'));
+      const b = sp(t - 0.45, 'snappy');
+      if (b > 0) pill('Try it free', DW / 2, DH / 2 + 90, b, { size: 32, h: 84, padX: 52 });
+      label('product.com', DW / 2, DH / 2 + 200, t - 0.8, { size: 24, color: T.muted, align: 'center' });
+  }},
+];
+
+function background() {
+  g.fillStyle = T.bg; g.fillRect(0, 0, DW, DH);
+  if (T.grid) {
+    g.fillStyle = 'rgba(255,255,255,0.045)';
+    for (let x = 40; x < DW; x += 48) for (let y = 30; y < DH; y += 48) g.fillRect(x, y, 2, 2);
+  }
+}
+
+function draw(t) {
+  g.setTransform(S, 0, 0, S, 0, 0);
+  SA = 1; g.globalAlpha = 1;
+  background(t);
+  for (const s of SCENES) if (t >= s.from && t < s.to) {
+    SA = 1; g.globalAlpha = 1;
+    g.save(); s.draw(t - s.from, s.to - s.from); g.restore();
+  }
+}
+window.DUR = DUR;
+window.seek = (t) => { draw(t); return true; };
+
+// Live preview in a normal browser; off during headless render.
+if (!navigator.webdriver) {
+  window.ready.then(() => {
+    const t0 = performance.now();
+    (function loop() { draw(((performance.now() - t0) / 1000) % DUR); requestAnimationFrame(loop); })();
+  });
+}
+</script>

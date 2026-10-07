@@ -1,0 +1,13 @@
+{
+  "name": "product-demo-video",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "music": "node music.mjs",
+    "stills": "node render.mjs --stills",
+    "render": "node render.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.48.0"
+  }
+}

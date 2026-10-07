@@ -1,0 +1,12 @@
+node_modules/
+.env
+.auth.json
+.doctor.json
+out/
+deliver/
+*.mp4
+*.mov
+*.wav
+*.mp3
+*.aiff
+.DS_Store
