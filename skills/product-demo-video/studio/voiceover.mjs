@@ -3,6 +3,8 @@
 //   node voiceover.mjs providers                         which providers are ready (key names only)
 //   node voiceover.mjs voices --provider elevenlabs      list voices (id + name)
 //   node voiceover.mjs say --provider elevenlabs --voice <id> [--script vo_script.json] [--dur 56]
+//        [--stability 0.5] [--style 0.2] [--speed 1]   ElevenLabs delivery; each line is sent with its
+//                                                        neighbours as context so the read flows as one take
 //
 // vo_script.json: [{ "t": 0.3, "text": "AI can build your website." }, ...]  (t = start, seconds)
 // Writes audio/voice.wav (all lines placed at their start times), audio/vo/NN.wav,
@@ -32,12 +34,14 @@ const PROVIDERS = {
       const r = await http('https://api.elevenlabs.io/v1/voices', { headers: { 'xi-api-key': need('ELEVENLABS_API_KEY') } }, 'ElevenLabs voices');
       return (await r.json()).voices.map((v) => ({ id: v.voice_id, name: v.name, info: [v.category, ...Object.values(v.labels || {})].filter(Boolean).join(', ') }));
     },
-    async synth(text, voice) {
+    async synth(text, voice, file, ctx = {}) {
       const model = env.ELEVENLABS_MODEL || 'eleven_multilingual_v2';
+      const voice_settings = { stability: Number(arg('stability', 0.5)), similarity_boost: 0.75, style: Number(arg('style', 0.2)),
+        speed: Number(arg('speed', 1)), use_speaker_boost: true };
       const r = await http(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voice)}?output_format=mp3_44100_128`, {
         method: 'POST',
         headers: { 'xi-api-key': need('ELEVENLABS_API_KEY'), 'Content-Type': 'application/json', Accept: 'audio/mpeg' },
-        body: JSON.stringify({ text, model_id: model, voice_settings: { stability: 0.5, similarity_boost: 0.75, style: 0.2, use_speaker_boost: true } }),
+        body: JSON.stringify({ text, model_id: model, voice_settings, previous_text: ctx.previous, next_text: ctx.next }),
       }, 'ElevenLabs TTS');
       return { bytes: Buffer.from(await r.arrayBuffer()), ext: 'mp3' };
     },
@@ -149,7 +153,7 @@ if (cmd === 'providers') {
   const clips = [];
   for (const [i, line] of lines.entries()) {
     const base = `audio/vo/${String(i).padStart(2, '0')}`;
-    const out = await p.synth(line.text, voice, base);
+    const out = await p.synth(line.text, voice, base, { previous: lines[i - 1]?.text, next: lines[i + 1]?.text });
     let src = out.path;
     if (!src) { src = `${base}.${out.ext}`; writeFileSync(src, out.bytes); }
     const pcm = toPcm(src);
@@ -170,7 +174,8 @@ if (cmd === 'providers') {
   });
   writeFileSync('audio/vo_timing.json', JSON.stringify(timing, null, 1));
   const chars = lines.reduce((a, l) => a + l.text.length, 0);
-  writeFileSync('audio/vo_usage.json', JSON.stringify({ provider: pid, voice, characters: chars, lines: lines.length }, null, 1));
+  writeFileSync('audio/vo_usage.json', JSON.stringify({ provider: pid, voice, characters: chars, lines: lines.length,
+    settings: pid === 'elevenlabs' ? { stability: Number(arg('stability', 0.5)), style: Number(arg('style', 0.2)), speed: Number(arg('speed', 1)) } : undefined }, null, 1));
   const bad = timing.filter((x) => x.overrun);
   console.log(`wrote audio/voice.wav (${total.toFixed(1)}s, ${lines.length} lines, ${chars} chars via ${pid})`);
   if (bad.length) {
