@@ -19,7 +19,7 @@ const run = (args) => new Promise((res, rej) => {
 });
 
 mkdirSync('out', { recursive: true });
-const browser = await chromium.launch();
+const browser = await chromium.launch({ args: ['--allow-file-access-from-files'] });   // WebGL planes refuse file:// images otherwise
 const page = await browser.newPage({ viewport: { width: W, height: H }, deviceScaleFactor: 1 });
 page.on('pageerror', (e) => { console.error('page error:', e.message); process.exit(1); });
 await page.goto(`file://${process.cwd()}/index.html?w=${W}&h=${H}${QUERY}`);
