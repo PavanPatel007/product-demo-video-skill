@@ -35,6 +35,6 @@ stats=$(ffmpeg -hide_banner -nostats -i "$video" "${inputs[@]}" \
 m() { echo "$stats" | sed -n "s/.*\"$1\" : \"\(.*\)\".*/\1/p"; }
 
 ffmpeg -y -loglevel error -i "$video" "${inputs[@]}" \
-  -filter_complex "${graph},loudnorm=${target}:measured_I=$(m input_i):measured_TP=$(m input_tp):measured_LRA=$(m input_lra):measured_thresh=$(m input_thresh):offset=$(m target_offset):linear=true[a]" \
+  -filter_complex "${graph},loudnorm=${target}:measured_I=$(m input_i):measured_TP=$(m input_tp):measured_LRA=$(m input_lra):measured_thresh=$(m input_thresh):offset=$(m target_offset):linear=true,alimiter=limit=0.84:attack=1:release=50:level=0[a]" \
   -map 0:v -map "[a]" -c:v copy -c:a aac -b:a 192k -ar 48000 -shortest "$out"
 echo "wrote $out"
