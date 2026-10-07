@@ -1,7 +1,8 @@
 // node motion-audit.mjs <video.mp4> [--max-hold 1] [--end-hold 2.5] [--loop] [--out out/check]
 // Frame-difference scan of a render (or a reference). Flags what the top Opus 5.5 films never do:
 //   holds  : nothing moves for longer than --max-hold seconds (end card allowed --end-hold)
-//   pops   : one frame changes far more than its neighbours (hard cut, or an element jumping)
+//   pops   : one frame changes far more than its neighbours (hard cut, an element jumping, or
+//            footage at half the frame rate, which shows as pops on alternate frames)
 //   seam   : with --loop, how different the last frame is from the first
 // Prints a per-second motion bar and writes <out>/motion.txt + motion.json.
 import { execFileSync } from 'node:child_process';
@@ -21,8 +22,10 @@ export function audit(file, { maxHold = 1, endHold = 2.5, loop = false, outDir =
   mkdirSync(outDir, { recursive: true });
   const { fps, dur } = probe(file);
   const tmp = join(outDir, '.diff.txt');
-  ff(['-i', file, '-vf', `scale=240:-2,format=gray,tblend=all_mode=difference,signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=${tmp}`, '-f', 'null', '-']);
-  const d = [...readFileSync(tmp, 'utf8').matchAll(/YAVG=([\d.]+)/g)].map((m) => Number(m[1]));
+  // d = percent of pixels that visibly changed since the previous frame; the threshold keeps
+  // H.264 noise on static frames (a few levels everywhere) from reading as motion or a pop
+  ff(['-i', file, '-vf', `scale=240:-2,format=gray,tblend=all_mode=difference,lut=y=if(gt(val\\,10)\\,255\\,0),signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=${tmp}`, '-f', 'null', '-']);
+  const d = [...readFileSync(tmp, 'utf8').matchAll(/YAVG=([\d.]+)/g)].map((m) => Number(m[1]) / 2.55);
   rmSync(tmp, { force: true });
 
   const holds = [];
@@ -55,8 +58,8 @@ export function audit(file, { maxHold = 1, endHold = 2.5, loop = false, outDir =
     const a = join(outDir, '.first.png'), b = join(outDir, '.last.png'), m = join(outDir, '.seam.txt');
     ff(['-i', file, '-frames:v', '1', a]);
     ff(['-sseof', '-0.1', '-i', file, '-update', '1', b]);
-    ff(['-i', a, '-i', b, '-filter_complex', `[0][1]blend=all_mode=difference,format=gray,signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=${m}`, '-f', 'null', '-']);
-    seam = Number(readFileSync(m, 'utf8').match(/YAVG=([\d.]+)/)?.[1] ?? NaN);
+    ff(['-i', a, '-i', b, '-filter_complex', `[0][1]blend=all_mode=difference,scale=240:-2,format=gray,lut=y=if(gt(val\\,10)\\,255\\,0),signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=${m}`, '-f', 'null', '-']);
+    seam = Number(readFileSync(m, 'utf8').match(/YAVG=([\d.]+)/)?.[1] ?? NaN) / 2.55;
     for (const f of [a, b, m]) rmSync(f, { force: true });
   }
 
@@ -67,9 +70,9 @@ export function audit(file, { maxHold = 1, endHold = 2.5, loop = false, outDir =
     holds.length ? `HOLDS (> ${maxHold}s still${holds.some((h) => h.end) ? `, end card > ${endHold}s` : ''}):` : `holds: none over ${maxHold}s`,
     ...holds.map((h) => `  ${h.from}s → ${h.to}s  (${h.len}s${h.end ? ', end card' : ''})`),
     pops.length ? `POPS / hard cuts (single-frame jumps): ${pops.length}` : 'pops: none',
-    ...pops.slice(0, 20).map((p) => `  ${p.t}s  diff ${p.diff}`),
+    ...pops.slice(0, 20).map((p) => `  ${p.t}s  ${p.diff}% of pixels jump in one frame`),
     dead.length ? `dead seconds (almost no motion): ${dead.join(', ')}` : 'dead seconds: none',
-    ...(seam === null ? [] : [`loop seam difference: ${seam.toFixed(2)} ${seam < 1 ? '(seamless)' : '(VISIBLE JUMP: make the last frame equal the first)'}`]),
+    ...(seam === null ? [] : [`loop seam: ${seam.toFixed(2)}% of pixels differ ${seam < 1 ? '(seamless)' : '(VISIBLE JUMP: make the last frame equal the first)'}`]),
   ];
   writeFileSync(join(outDir, 'motion.txt'), lines.join('\n') + '\n');
   writeFileSync(join(outDir, 'motion.json'), JSON.stringify(report, null, 1));
