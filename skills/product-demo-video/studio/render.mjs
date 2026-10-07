@@ -30,13 +30,24 @@ const canvas = page.locator('#c');
 if (STILLS) {
   rmSync('out/stills', { recursive: true, force: true });
   mkdirSync('out/stills', { recursive: true });
-  const times = STILLS.split(',').map(Number);
+  // --stills 1,2.5,4 | beats (one per beat, mid-move) | downbeats | every:0.25
+  let times;
+  if (/^(beats|downbeats)$/.test(STILLS)) {
+    const { bpm, off } = await page.evaluate(() => ({ bpm: window.BPM || 120, off: window.OFFSET || 0 }));
+    const step = (60 / bpm) * (STILLS === 'downbeats' ? 4 : 1);
+    times = [];
+    for (let t = off + step * 0.45; t < DUR; t += step) times.push(+t.toFixed(3));
+  } else if (STILLS.startsWith('every:')) {
+    const step = Number(STILLS.slice(6));
+    times = [];
+    for (let t = step / 2; t < DUR; t += step) times.push(+t.toFixed(3));
+  } else times = STILLS.split(',').map(Number);
   for (const [i, t] of times.entries()) {
     await page.evaluate((t) => window.seek(t), t);
     await canvas.screenshot({ path: `out/stills/${String(i).padStart(3, '0')}_t${t.toFixed(2)}.png` });
   }
   await browser.close();
-  const cols = Math.min(6, times.length);
+  const cols = Math.min(times.length > 12 ? 8 : 6, times.length);
   await run(['-y', '-loglevel', 'error', '-framerate', '1', '-pattern_type', 'glob', '-i', 'out/stills/*_t*.png',
     '-vf', `scale=${W >= H ? 480 : 270}:-1,tile=${cols}x${Math.ceil(times.length / cols)}:padding=8:color=white`,
     '-frames:v', '1', 'out/stills/contact.png']);

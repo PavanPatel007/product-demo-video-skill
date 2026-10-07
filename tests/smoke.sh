@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# End-to-end check of the studio: scaffold → doctor → music → stills (2 themes, 2 formats) →
-# render → sfx → voiceover (local + missing-key path) → mix with ducking → loudness → check →
-# cost report (Claude fixture, Codex fixture, manual). Uses a temp folder; leaves nothing behind.
+# End-to-end check of the studio: scaffold → doctor → music → stills (beats, 2 themes, 3 formats,
+# mascot) → render → sfx (synth + file cue) → voiceover (local + missing-key path) → mix with
+# ducking → loudness → check + motion audit → ref.mjs → cost report (Claude fixture, Codex
+# fixture, manual). Uses a temp folder; leaves nothing behind.
 set -euo pipefail
 repo="$(cd "$(dirname "$0")/.." && pwd)"
 studio="$repo/skills/product-demo-video/studio"
@@ -13,7 +14,7 @@ fail() { echo "  ✗ $*"; exit 1; }
 step() { echo "• $*"; }
 
 step "syntax"
-for f in "$studio"/*.mjs "$studio"/lib/*.mjs; do node --check "$f" || fail "$f"; done
+for f in "$studio"/*.mjs "$studio"/lib/*.mjs "$studio"/lib/*.js; do node --check "$f" || fail "$f"; done
 for f in "$studio"/*.sh "$repo"/install.sh; do bash -n "$f" || fail "$f"; done
 ok "all scripts parse"
 
@@ -34,31 +35,34 @@ grep -q "add ELEVENLABS_API_KEY to .env" doctor.txt || fail "missing key not exp
 ok "toolchain ready, voice providers listed with ElevenLabs first"
 
 step "music + beats"
-node music.mjs --dur 10 --bpm 120 >/dev/null
+node music.mjs --dur 11 --bpm 120 >/dev/null
 [ -s audio/music.wav ] && [ -s audio/beats.json ] || fail "music.mjs outputs missing"
 ok "audio/music.wav + beats.json"
 
 step "stills"
-node render.mjs --w 1920 --h 1080 --stills 1,4,8 >/dev/null
-[ -s out/stills/contact.png ] || fail "16:9 contact sheet missing"
-rm -rf out/stills
+node render.mjs --w 1920 --h 1080 --stills beats >/dev/null
+n=$(ls out/stills/*_t*.png | wc -l | tr -d ' ')
+[ "$n" -ge 20 ] && [ -s out/stills/contact.png ] || fail "--stills beats wrote $n stills, expected one per beat (22)"
 node render.mjs --w 1920 --h 1080 --stills 1,4,8 --query theme=house >/dev/null
 [ -s out/stills/contact.png ] || fail "house theme stills missing"
 node render.mjs --w 1080 --h 1920 --stills 1,4,8 >/dev/null
 [ -s out/stills/contact.png ] || fail "9:16 stills missing"
-ok "brand + house themes, 16:9 + 9:16"
+node render.mjs --w 1080 --h 1080 --stills 3,10.5 --query mascot=1 >/dev/null
+[ -s out/stills/contact.png ] || fail "1:1 mascot stills missing"
+ok "$n beat stills; brand + house themes; 16:9, 9:16, 1:1 with mascot"
 
 step "render"
 node render.mjs --w 960 --h 540 --fps 30 --sub 1 --out out/silent.mp4 >/dev/null 2>&1
 d=$(ffprobe -v error -show_entries format=duration -of csv=p=0 out/silent.mp4)
-awk -v d="$d" 'BEGIN { exit !(d > 9.8 && d < 10.2) }' || fail "silent.mp4 is ${d}s, expected 10"
+awk -v d="$d" 'BEGIN { exit !(d > 10.8 && d < 11.2) }' || fail "silent.mp4 is ${d}s, expected 11"
 ok "out/silent.mp4 (${d}s)"
 
 step "sfx"
-echo '[{"t":0.2,"type":"whoosh"},{"t":4.4,"type":"click"},{"t":7.1,"type":"thump"},{"t":7.5,"type":"chime","gain":0.6}]' >sfx_cues.json
+mkdir -p sfx && ffmpeg -y -loglevel error -f lavfi -i "sine=f=900:d=0.4" -af "afade=t=in:d=0.15,afade=t=out:st=0.2:d=0.2" sfx/tone.wav
+echo '[{"t":0.2,"type":"whoosh"},{"t":1.75,"type":"click"},{"t":2.0,"type":"swish"},{"t":4.0,"type":"tick"},{"t":6.0,"file":"sfx/tone.wav","gain":0.7},{"t":7.25,"type":"riser"},{"t":8.0,"type":"pop"},{"t":9.0,"type":"chime","gain":0.6}]' >sfx_cues.json
 node sfx.mjs sfx_cues.json out/sfx.wav >/dev/null
 [ -s out/sfx.wav ] || fail "sfx.wav missing"
-ok "out/sfx.wav"
+ok "out/sfx.wav (synthesized cues + a file cue placed by its peak)"
 
 step "voiceover"
 echo '[{"t":0.3,"text":"Stop losing leads."},{"t":3.0,"text":"Every lead lands in one inbox."},{"t":7.2,"text":"Try it free."}]' >vo_script.json
@@ -67,7 +71,7 @@ echo "$out" | grep -q "ELEVENLABS_API_KEY" || fail "missing-key message doesn't 
 ok "missing ElevenLabs key → clear message naming the variable"
 voiced=0
 if command -v say >/dev/null || command -v espeak-ng >/dev/null; then
-  node voiceover.mjs say --provider local --script vo_script.json --dur 10 >/dev/null || [ $? -eq 2 ]
+  node voiceover.mjs say --provider local --script vo_script.json --dur 11 >/dev/null || [ $? -eq 2 ]
   [ -s audio/voice.wav ] && [ -s audio/vo_timing.json ] && [ -s audio/vo_usage.json ] || fail "local voiceover outputs missing"
   grep -q '"characters": 60' audio/vo_usage.json || fail "vo_usage character count wrong: $(cat audio/vo_usage.json)"
   voiced=1
@@ -86,16 +90,25 @@ ok "out/final.mp4 at $lufs LUFS$([ $voiced = 1 ] && echo ', music ducked under v
 step "check"
 ./check.sh out/final.mp4 3 >/dev/null
 for f in contact strip phone poster; do [ -s "out/check/$f.png" ] || fail "check.sh: $f.png missing"; done
-ok "contact, strip, phone, poster"
+[ -s out/check/motion.txt ] && [ -s out/check/motion.json ] || fail "check.sh: motion audit missing"
+grep -q "holds: none" out/check/motion.txt || { cat out/check/motion.txt; fail "template has a hold over 1 s"; }
+ok "contact, strip, phone, poster; motion audit finds no holds in the template"
+
+step "reference analysis"
+node ref.mjs out/final.mp4 --name smoke >/dev/null
+[ -s refs/smoke/sheet.png ] && [ -s refs/smoke/analysis.md ] || fail "ref.mjs outputs missing"
+grep -q "Hard cuts: none" refs/smoke/analysis.md || { cat refs/smoke/analysis.md; fail "template should read as one continuous take"; }
+grep -q "LUFS" refs/smoke/analysis.md || fail "ref.mjs loudness missing"
+ok "ref.mjs: sheet, cuts (continuous take), loudness, motion"
 
 step "cost report"
 r=$(node cost-report.mjs --video out/final.mp4 --source claude --claude-dir "$fx/claude")
 echo "$r" | grep -q "Claude Code logs" || fail "claude source not used"
 echo "$r" | grep -q "174,500 tokens" || { echo "$r"; fail "claude token total wrong"; }
 echo "$r" | grep -q '\$0.211' || { echo "$r"; fail "claude cost wrong (expected \$0.211)"; }
-echo "$r" | grep -q "10-second video" || fail "video length missing"
+echo "$r" | grep -q "11-second video" || fail "video length missing"
 [ $voiced = 1 ] && { echo "$r" | grep -q "Voiceover (local)" || fail "voice cost line missing"; }
-ok "Claude Code fixture: 174,500 tokens, \$0.211, deduped, 10-second video"
+ok "Claude Code fixture: 174,500 tokens, \$0.211, deduped, 11-second video"
 
 mkdir -p codex/2026/10/07
 sed "s#__CWD__#$(pwd)#g" "$fx/codex/rollout-template.jsonl" >codex/2026/10/07/rollout-1.jsonl

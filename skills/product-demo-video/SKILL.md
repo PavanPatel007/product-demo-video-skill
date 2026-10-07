@@ -4,8 +4,10 @@ description: >-
   Creates product demo, launch, and promo videos rendered from code, tuned for Claude Opus 5.5:
   checks the model, asks a minimal set of intake questions (including an optional AI voiceover
   with ElevenLabs, OpenAI, Google or Azure), captures the real product, plans shots on a beat
-  grid, builds a deterministic seek(t) canvas animation, critiques its own frames until every
-  score is 8+, renders MP4s in 16:9, 9:16 and 1:1 with synthesized music, SFX and voice, and
+  grid, builds a deterministic seek(t) canvas animation in the viral Opus 5.5 style (one
+  continuous take, mask-rise type, 3D UI with screen-studio camera, flood and iris transitions,
+  count-ups, mascot), analyzes reference videos or X posts, critiques its own frames and motion
+  until every score is 8+, renders MP4s in 16:9, 9:16 and 1:1 with music, SFX and voice, and
   ends with a token and cost report. Use when the user asks for a product demo video, launch
   video, app promo, walkthrough video, product reel, motion ad, or animated explainer.
 ---
@@ -70,7 +72,8 @@ Then ask these in one round (first option = recommended / default):
 | `format` | Which formats? | 16:9 for web and decks (Recommended for walkthroughs) · 9:16 first, then 1:1 and 16:9 (Recommended for social) · 9:16 only · 1:1 only |
 | `music` | Music? | Original track synthesized in code + UI sounds (Recommended) · I'll supply a track (`audio/track.wav`) · No music |
 | `voice` | Add an AI voiceover? | built from doctor output, see below |
-| `reference` | Visual reference? | None, use the product's own brand (Recommended) · Neutral house style · Both: render two versions · A screenshot/frame I'll attach · A video or link |
+| `look` | Which look? | Keynote continuous take in the product's brand: one unbroken shot, UI in 3D, flood and iris transitions (Recommended) · Kinetic launch: word slams, chapter labels, hard cuts on the beat · Match a reference video or X post I'll give you · Both brand and neutral house style: two versions |
+| `mascot` | Add a mascot character? | No (Recommended) · Yes: a simple box character that reacts on the beat (or describe yours) |
 
 **`voice` options, always in this order.** Mark each `(key found)` or `(needs KEY_NAME in .env)`
 from the doctor output:
@@ -128,45 +131,66 @@ Capture gotchas:
 - Off-canvas drawers (x > viewport) break clips and add shadows; the scripts skip them.
 - Never click anything that writes data (save, delete, send, publish, logout).
 
-## Step 3: Brief, style guide, script, beat grid
+## Step 3: Reference, brief, style guide, script, beat grid
 
-1. Pick the template in [briefs.md](briefs.md) matching `style` (A launch reel, B UI morph,
-   D flagship; walkthroughs use A with real app screens). Append C if there's a voiceover.
-   Fill it and save `docs/brief.md`.
-2. `docs/style_guide.md`: from the reference (see "Reference extraction" in briefs.md),
-   otherwise from `assets/brand.json`. Palette in hex, one display face, one UI face, one accent.
+1. Read [research.md](research.md): the measured grammar of the top Opus 5.5 videos. It is the
+   default look; every rule below assumes it.
+2. Reference (only for "Match a reference"): `node ref.mjs <x.com status URL | .mp4 URL | file>`.
+   It downloads the video (and the post text, which often holds the creator's full prompt),
+   and writes `refs/<name>/sheet.png` (2 frames per second), cuts, shot lengths, palette,
+   loudness and a motion audit to `refs/<name>/analysis.md`. Open the sheet and look at it.
+3. Pick the template in [briefs.md](briefs.md): E keynote continuous take (the default `look`),
+   A kinetic launch, B UI morph loop, D flagship 45 s+; walkthroughs use E with real app screens.
+   Append C if there's a voiceover or mascot. Fill it and save `docs/brief.md`.
+4. `docs/style_guide.md`: from `refs/*/analysis.md` if there's a reference, otherwise from
+   `assets/brand.json`. Palette in hex, one display face, one UI face, one accent.
    For "Both", define the second look as `THEMES.house` in `index.html`.
-3. Beat grid:
+5. Beat grid:
    - Synthesized: `node music.mjs --dur <seconds> --bpm 120` → `audio/music.wav` + `audio/beats.json`.
    - Supplied track: `python3 beats.py audio/track.wav > audio/beats.json`.
-4. Voiceover: follow [voiceover.md](voiceover.md). Write `vo_script.json` (one line per shot,
+6. Voiceover: follow [voiceover.md](voiceover.md). Write `vo_script.json` (one line per shot,
    ~2.3 words per second), pick the voice, generate, fix overruns. Shots then start on line times.
 
 ## Step 4: Shot list gate (the only other time you stop)
 
-Write `docs/shotlist.md` on the beat grid. Every shot: time range, what's on screen (naming the
-asset file), camera move, on-screen text, voice line (if any), SFX cue. Rules: hook in the
-first 2 s, something new every 2-4 s, one proof metric, logo + CTA at the end.
+Write `docs/shotlist.md` on the beat grid. Every shot: beat range, what's on screen (naming the
+asset file), how it is made out of the previous shot (the transition), camera move, on-screen
+text, voice line (if any), SFX cue. Rules: hook in the first 2 s, a change on every beat, no hold
+over 1 s, one proof metric, logo + CTA at the end.
 
 Show the shot list compactly (and the voice name, if any) and ask for OK. Apply changes, then
 continue without stopping until delivery.
 
 ## Step 5: Build
 
-Edit `index.html`: set `DUR`, `THEMES.brand`, `FONTS`, `ASSETS`, then replace the example
-`SCENES` with one object per shot. The helper kit is ready: `words()` (kinetic headline with
-highlight), `label()`, `shot()` (screenshot card or sub-rect), `ring()`, `cursor()`, `ripple()`,
-`pill()`, `logo()`, `exitFx()`, `withAlpha()`. Use `sp(t, 'snappy'|'base'|'heavy'|'playful')`
-for entrances and `track()` for anything with several targets (cursor, camera). Lay out in
-design units with `DW`, `DH`, `PORTRAIT`, `SQUARE` so one timeline reframes per format.
-Ring and click on real boxes from `assets/targets.json`. Write `sfx_cues.json`
-(`[{"t": 2.5, "type": "click"}]`, types: click, pop, thump, whoosh, chime, optional `gain`).
+Edit `index.html`: set `DUR`, `BPM`, `THEMES.brand`, `FONTS`, `ASSETS`, then replace the example
+`SCENES` (a working 11 s keynote take: dot → pill → click → flood → 3D UI with headline →
+camera push → toggle → collapse into the dot → wordmark). Scenes get absolute `t`; place every
+event with `B(n)` (beat n) and let neighbouring scenes overlap so one hands off to the next.
+
+The kit (`lib/kit.js`) does the Opus 5.5 grammar; use it instead of writing effects from scratch:
+- Type: `maskRise` (letters rise out of a line, `out` to leave, `accentLast` for the period),
+  `words`, `scramble`, `typeOn`, `slam`, `countUp`, `strike`, `label`, `wordmark`.
+- UI: `card`, `pill`, `chip`, `toggle`, `shot` (screenshot or sub-rect), `ring`, `cursorPath`,
+  `cursor`, `ripple`.
+- Camera and depth: `camera(zoom, focusX, focusY)`, `plane3d(img, cx, cy, w, {rx, ry, rz, blur})`
+  (perspective UI plane), `blurred(px, fn)`.
+- Transitions: `morphBox`, `flood`, `contract`, `iris`, `mixColor`.
+- Character: `mascot(x, y, size, t, {look, squash})` (`?mascot=1` in the template).
+
+Use `sp(t, 'snappy'|'base'|'heavy'|'playful')` for entrances and `track()` for anything with
+several targets (cursor, camera). Lay out in design units with `DW`, `DH`, `PORTRAIT`, `SQUARE`
+so one timeline reframes per format. Ring and click on real boxes from `assets/targets.json`.
+Write `sfx_cues.json`: synthesized `{"t": 2.5, "type": "click"}` (click, pop, thump, whoosh,
+chime, tick, swish, riser) or file SFX `{"t": 2.5, "file": "sfx/click.wav", "gain": 0.8}`,
+placed by the file's loudest sample. Every visible event gets a sound.
 
 ## Step 6: Critique loop (minimum 3 rounds)
 
 ```bash
-node render.mjs --w 1920 --h 1080 --stills 0.5,1.5,3,4.5,6,...      # one per beat or shot
-node render.mjs --w 1920 --h 1080 --stills ... --query theme=house   # second look, if any
+node render.mjs --w 1920 --h 1080 --stills beats                       # one still per beat, mid-move
+node render.mjs --w 1920 --h 1080 --stills beats --query theme=house   # second look, if any
+node render.mjs --w 1080 --h 1920 --stills 1,4,8                       # spot-check each other format
 ```
 
 Open `out/stills/contact.png` with your file/image reading tool and actually look at it. Run the
@@ -179,18 +203,20 @@ are done. For 45 s+ films, render an animatic first: `--w 960 --h 540 --sub 1`.
 Per format (16:9 `1920x1080`, 9:16 `1080x1920`, 1:1 `1080x1080`) and per theme:
 
 ```bash
-node render.mjs --w 1920 --h 1080 --sub 1 --out out/silent_16x9.mp4
+node render.mjs --w 1920 --h 1080 --out out/silent_16x9.mp4          # 60 fps, --sub 4 motion blur
 node sfx.mjs sfx_cues.json out/sfx.wav
 ./mix.sh out/silent_16x9.mp4 deliver/final_16x9.mp4 audio/music.wav out/sfx.wav [--voice audio/voice.wav]
-./check.sh deliver/final_16x9.mp4 <seconds-of-fastest-action>
+./check.sh deliver/final_16x9.mp4 <seconds-of-fastest-action> [--loop]
 ```
 
-`--sub 1` for screenshot-heavy demos (blended subframes double-expose small text during fast
-moves); `--sub 4` for pure motion graphics. Grab 2-3 full-res frames mid-move from the final
-MP4 (`ffmpeg -ss <t> -i final.mp4 -frames:v 1 out/f.png`) and look for ghosting.
+Grab 2-3 full-res frames mid-move from the final MP4 (`ffmpeg -ss <t> -i final.mp4 -frames:v 1
+out/f.png`); if small screenshot text ghosts, re-render with `--sub 2` (or `--sub 1`).
 
-Open `out/check/contact.png`, `strip.png` and `phone.png` and run the critique pass on the real
-render; fix and re-render anything below 8. With a voiceover, listen-check by reading
+`check.sh` also runs `motion-audit.mjs`, which prints motion per second and lists every hold
+over 1 s, every single-frame pop, dead seconds and (with `--loop`) the seam. Fix every hold
+and every pop that isn't a deliberate downbeat cut. Then open `out/check/contact.png`,
+`strip.png` and `phone.png` and run the critique pass on the real render; fix and re-render
+anything below 8. With a voiceover, listen-check by reading
 `audio/vo_timing.json`: every line must start on its shot and none may overrun.
 Confirm loudness: `ffmpeg -i final.mp4 -af ebur128 -f null - 2>&1 | tail -12` shows about -14 LUFS.
 
@@ -221,15 +247,19 @@ the same brand reuses the whole studio.
 
 - Real product UI only. Never invent screens, features, metrics or testimonials.
 - No Math.random, timers, CSS transitions or carried state in render mode.
-- Banned: centered title on gradient, everything fading in, corner labels/frame borders.
+- Banned: crossfades, blur-ins, glows, particles, 3D flips, holds over 1 s, centered title on
+  gradient, everything fading in, corner labels/frame borders.
+- References give the grammar, never the content, logos or characters. Don't commit
+  downloaded reference videos; link to the creator's post.
 - API keys and passwords only in `.env`; refer to them by variable name; never print them.
 - Logged-in apps are read-only: navigate and screenshot, never change data.
 
 ## Additional resources
 
+- The Opus 5.5 style research (sources, measured numbers, grammar): [research.md](research.md)
 - Brief templates and the critique prompt: [briefs.md](briefs.md)
 - Voiceover providers, voices and script timing: [voiceover.md](voiceover.md)
-- Studio files copied into each project: `studio/` (render.mjs, lib/, capture-*.mjs, doctor.mjs,
-  voiceover.mjs, music.mjs, sfx.mjs, beats.py, mix.sh, check.sh, cost-report.mjs, pricing.json,
-  house-rules.md, index.html, env.example)
+- Studio files copied into each project: `studio/` (render.mjs, lib/motion.js, lib/kit.js,
+  capture-*.mjs, ref.mjs, motion-audit.mjs, doctor.mjs, voiceover.mjs, music.mjs, sfx.mjs,
+  beats.py, mix.sh, check.sh, cost-report.mjs, pricing.json, house-rules.md, index.html, env.example)
 - Method source: [How to build motion design studio with Opus 5.5](https://x.com/0xMovez/status/2104216919033192746)

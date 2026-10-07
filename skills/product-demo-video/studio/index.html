@@ -7,34 +7,38 @@ html,body{margin:0;background:#000}canvas{display:block;max-width:100vw;max-heig
 </style>
 <canvas id="c"></canvas>
 <script src="lib/motion.js"></script>
+<script src="lib/kit.js"></script>
 <script>
 const Q = new URLSearchParams(location.search);
-const W = +Q.get('w') || 1920, H = +Q.get('h') || 1080, DUR = 10;
+const W = +Q.get('w') || 1920, H = +Q.get('h') || 1080, DUR = 11;
 const c = document.getElementById('c'); c.width = W; c.height = H;
 const g = c.getContext('2d');
 // Design space: the short side is always 1080 units, so one layout scales to any resolution.
-// Lay out with DW, DH and PORTRAIT/SQUARE; never with raw pixels for one format.
 const S = Math.min(W, H) / 1080, DW = W / S, DH = H / S;
-const PORTRAIT = H > W * 1.1, SQUARE = !PORTRAIT && W < H * 1.1;
-const U = 1;   // kept for older scenes; 1 design unit
+const PORTRAIT = H > W * 1.1, SQUARE = !PORTRAIT && W < H * 1.1, WIDE = !PORTRAIT && !SQUARE;
+
+// Beat grid: music.mjs starts on beat 0. For a supplied track set BPM and OFFSET from beats.json.
+const BPM = 120, OFFSET = 0, BEAT = 60 / BPM;
+const B = (n) => OFFSET + n * BEAT;
+window.BPM = BPM; window.OFFSET = OFFSET;
 
 // One timeline, several looks: render with --query theme=house
 const THEMES = {
   brand: {   // fill from assets/brand.json (captured colors + fonts)
-    bg: '#FAF9F6', fg: '#0F172A', muted: '#4A4560', faint: '#8A8699', accent: '#4F46E5', onAccent: '#FFFFFF',
-    band: '#F3E7CE', panel: '#FFFFFF', shadow: 'rgba(15,23,42,0.12)', shadowBlur: 50,
-    display: 'Inter, system-ui, sans-serif', dw: 700, track: -0.03, ui: 'Inter, system-ui, sans-serif', uw: 500,
-    mono: 'ui-monospace, Menlo, monospace', mw: 500, mtrack: 0.12, grid: false, wordBand: true, cursor: '#0F172A',
+    bg: '#F4F3EF', fg: '#0B0B0A', muted: '#55524C', faint: '#A19D94', accent: '#FF4F1F', onAccent: '#FFFFFF',
+    band: '#E9E6DF', panel: '#FFFFFF', shadow: 'rgba(20,18,14,0.16)', shadowBlur: 60,
+    display: 'Inter, system-ui, sans-serif', dw: 800, track: -0.04, ui: 'Inter, system-ui, sans-serif', uw: 500,
+    mono: 'ui-monospace, Menlo, monospace', mw: 500, mtrack: 0.12, grid: false, wordBand: false, cursor: '#0B0B0A',
   },
-  house: {   // neutral anti-slop look that works for any product
-    bg: '#111110', fg: '#F2F0EA', muted: '#A8A59C', faint: '#6E6B64', accent: '#3DDC84', onAccent: '#0B0B0A',
-    band: '#3DDC84', panel: '#1C1B19', shadow: 'rgba(0,0,0,0.6)', shadowBlur: 80,
-    display: 'Inter, system-ui, sans-serif', dw: 800, track: -0.035, ui: 'Inter, system-ui, sans-serif', uw: 600,
-    mono: 'Inter, system-ui, sans-serif', mw: 600, mtrack: 0.14, grid: true, wordBand: false, cursor: '#FFFFFF',
+  house: {   // neutral dark look that works for any product
+    bg: '#0E0E0D', fg: '#F2F0EA', muted: '#A8A59C', faint: '#5E5B55', accent: '#3DDC84', onAccent: '#0B0B0A',
+    band: '#1F1E1B', panel: '#1A1917', shadow: 'rgba(0,0,0,0.65)', shadowBlur: 80,
+    display: 'Inter, system-ui, sans-serif', dw: 800, track: -0.04, ui: 'Inter, system-ui, sans-serif', uw: 600,
+    mono: 'ui-monospace, Menlo, monospace', mw: 600, mtrack: 0.14, grid: true, wordBand: false, cursor: '#FFFFFF',
   },
 };
 const T = THEMES[Q.get('theme')] || THEMES.brand;
-const FONTS = [`${THEMES.brand.dw} 40px Inter`, `${THEMES.house.dw} 40px Inter`, '500 40px Inter'];
+const FONTS = ['800 40px Inter', '600 40px Inter', '500 40px Inter'];
 
 // Real product assets only (captured into ./assets). Missing files fail the render loudly.
 const ASSETS = {
@@ -50,167 +54,125 @@ window.ready = Promise.all([
     i.onerror = () => rej(new Error('missing asset ' + src));
     i.src = src;
   })),
-]);
+]).then(() => { IMG.dash ||= skeletonUI(); });
 
-// ---------- helper kit (design units) ----------
-const fontD = (size) => `${T.dw} ${size}px ${T.display}`;
-const fontU = (size, w = T.uw) => `${w} ${size}px ${T.ui}`;
-const fontM = (size) => `${T.mw} ${size}px ${T.mono}`;
-// Scene-level opacity: exits and swaps multiply into every element, so nothing pops back.
-let SA = 1;
-const alpha = (a) => { g.globalAlpha = clamp(a) * SA; };
-const withAlpha = (a, fn) => { const p = SA; SA *= clamp(a); g.globalAlpha = SA; fn(); SA = p; g.globalAlpha = SA; };
-function rrect(x, y, w, h, r) { g.beginPath(); g.roundRect(x, y, w, h, r); }
-
-// Small uppercase kicker.
-function label(text, x, y, t, { size = 20, color = T.faint, align = 'left' } = {}) {
-  const s = sp(t, 'base');
-  g.save(); alpha(s * 1.4);
-  g.font = fontM(size); g.letterSpacing = `${size * T.mtrack}px`;
-  g.fillStyle = color; g.textAlign = align; g.textBaseline = 'alphabetic';
-  g.fillText(text.toUpperCase(), x + (1 - s) * -20, y);
-  g.restore();
-}
-
-// Kinetic words: each word rises on its own spring. hi = word indices to highlight. Returns block height.
-function words(text, x, y, t, { size = 80, color = T.fg, maxW = DW - 240, lh = 1.12, align = 'left', hi = [], stagger = 0.075, weight } = {}) {
-  g.save();
-  g.font = weight ? `${weight} ${size}px ${T.display}` : fontD(size);
-  g.letterSpacing = `${size * T.track}px`; g.textBaseline = 'alphabetic';
-  const space = g.measureText(' ').width;
-  const lines = [[]]; let lw = 0;
-  for (const w of text.split(' ')) {
-    const ww = g.measureText(w).width;
-    if (lw + ww > maxW && lines[lines.length - 1].length) { lines.push([]); lw = 0; }
-    lines[lines.length - 1].push(w); lw += ww + space;
+// Grey skeleton until real screenshots exist. Never ship it: replace with assets/screens/*.png.
+function skeletonUI() {
+  const cv = document.createElement('canvas'); cv.width = 1600; cv.height = 1000;
+  const x = cv.getContext('2d'), r = rng(5);
+  x.fillStyle = T.panel; x.fillRect(0, 0, 1600, 1000);
+  x.fillStyle = T.band; x.fillRect(0, 0, 300, 1000); x.fillRect(300, 0, 1300, 90);
+  for (let i = 0; i < 7; i++) { x.fillStyle = i === 1 ? T.accent : T.faint; x.globalAlpha = i === 1 ? 1 : 0.35; x.beginPath(); x.roundRect(40, 140 + i * 64, 160 + r() * 60, 22, 11); x.fill(); }
+  x.globalAlpha = 1;
+  for (let i = 0; i < 8; i++) {
+    const y = 140 + i * 104;
+    x.fillStyle = T.band; x.beginPath(); x.roundRect(350, y, 1200, 84, 16); x.fill();
+    x.fillStyle = i % 3 ? T.faint : T.accent; x.beginPath(); x.arc(400, y + 42, 22, 0, Math.PI * 2); x.fill();
+    x.fillStyle = T.faint; x.globalAlpha = 0.6; x.beginPath(); x.roundRect(450, y + 26, 220 + r() * 200, 16, 8); x.fill();
+    x.globalAlpha = 0.3; x.beginPath(); x.roundRect(450, y + 52, 140 + r() * 260, 12, 6); x.fill(); x.globalAlpha = 1;
   }
-  let i = 0;
-  lines.forEach((ln, li) => {
-    const total = ln.reduce((a, w) => a + g.measureText(w).width, 0) + space * (ln.length - 1);
-    let cx = align === 'center' ? x - total / 2 : x;
-    const cy = y + li * size * lh;
-    ln.forEach((w, j) => {
-      const ww = g.measureText(w).width, s = sp(t - i * stagger, 'heavy');
-      const isHi = hi.includes(i), joinNext = isHi && j < ln.length - 1 && hi.includes(i + 1);
-      if (isHi && T.wordBand) {
-        const b = sp(t - i * stagger - 0.25, 'snappy');
-        alpha(1); g.fillStyle = T.band;
-        g.fillRect(cx - size * 0.08, cy - size * 0.86, (ww + size * 0.16 + (joinNext ? space : 0)) * clamp(b), size * 1.08);
-      }
-      alpha(s * 1.6);
-      g.fillStyle = isHi && !T.wordBand ? T.accent : color; g.textAlign = 'left';
-      g.fillText(w, cx, cy + (1 - s) * size * 0.55);
-      cx += ww + space; i++;
-    });
-  });
-  g.restore();
-  return lines.length * size * lh;
+  return cv;
 }
 
-// Screenshot (or a sub-rect [sx, sy, sw, sh] of one) as a card. Placeholder until the asset exists.
-function shot(img, x, y, w, { src, radius = 22, s = 1, a = 1, shadow = true } = {}) {
-  const [sx, sy, sw, sh] = src || (img ? [0, 0, img.width, img.height] : [0, 0, 16, 10]);
-  const h = w * sh / sw;
-  g.save(); alpha(a);
-  g.translate(x + w / 2, y + h / 2); g.scale(s, s); g.translate(-w / 2, -h / 2);
-  if (shadow) {
-    g.shadowColor = T.shadow; g.shadowBlur = T.shadowBlur; g.shadowOffsetY = T.shadowBlur * 0.35;
-    rrect(0, 0, w, h, radius); g.fillStyle = T.panel; g.fill(); g.shadowColor = 'transparent';
-  }
-  rrect(0, 0, w, h, radius); g.clip();
-  if (img) g.drawImage(img, sx, sy, sw, sh, 0, 0, w, h);
-  else {
-    g.fillStyle = T.faint; alpha(a * 0.25);
-    for (let k = 0; k < 6; k++) g.fillRect(w * 0.06, h * (0.14 + k * 0.13), w * (0.3 + 0.5 * ((k * 37) % 7) / 7), h * 0.05);
-  }
-  g.restore();
-  return h;
-}
+// ---------- shots (one per row of docs/shotlist.md; times on the beat grid) ----------
+const P = { x: DW / 2, y: DH / 2 };                         // where the opening pill sits
+const PILL = { x: P.x - 300, y: P.y - 75, w: 600, h: 150, r: 75 };
+const DOT = { x: P.x - 22, y: P.y - 22, w: 44, h: 44, r: 22 };
+const TOG = WIDE ? { x: DW * 0.7, y: DH * 0.56 } : { x: DW * 0.5, y: DH * 0.7 };   // toggle the cursor flips
 
-// Accent outline that settles onto a real UI element (use boxes from assets/targets.json).
-function ring(x, y, w, h, p, { r = 12, color = T.accent, lw = 4 } = {}) {
-  if (p <= 0) return;
-  const e = (1 - clamp(p)) * 16;
-  g.save(); alpha(p * 2);
-  rrect(x - e, y - e, w + e * 2, h + e * 2, r + e); g.strokeStyle = color; g.lineWidth = lw; g.stroke();
-  g.restore();
-}
-
-function cursor(x, y, press = 0, a = 1) {
-  g.save(); alpha(a);
-  g.translate(x, y); g.scale(1.25 * (1 - 0.15 * press), 1.25 * (1 - 0.15 * press));
-  g.shadowColor = 'rgba(0,0,0,0.25)'; g.shadowBlur = 8; g.shadowOffsetY = 3;
-  g.beginPath(); g.moveTo(0, 0); g.lineTo(0, 30); g.lineTo(8, 23); g.lineTo(14, 36);
-  g.lineTo(19, 34); g.lineTo(13, 21); g.lineTo(24, 21); g.closePath();
-  g.fillStyle = T.cursor; g.fill(); g.shadowColor = 'transparent';
-  g.strokeStyle = T.cursor === '#FFFFFF' ? '#0B0B0A' : '#FFFFFF'; g.lineWidth = 2; g.stroke();
-  g.restore();
-}
-
-function ripple(x, y, t) {
-  if (t <= 0 || t > 0.5) return;
-  g.save(); g.beginPath(); g.arc(x, y, 46 * sp(t, 'snappy'), 0, Math.PI * 2);
-  g.strokeStyle = T.accent; alpha(1 - t / 0.5); g.lineWidth = 4; g.stroke(); g.restore();
-}
-
-function pill(text, cx, cy, s, { fill = T.accent, color = T.onAccent, size = 30, padX = 40, h = 76, a = 1 } = {}) {
-  g.save(); g.font = fontU(size, 600); g.letterSpacing = '0px';
-  const w = g.measureText(text).width + padX * 2, ww = w * clamp(s, 0, 1.2);
-  alpha(a); rrect(cx - ww / 2, cy - h / 2, ww, h, h / 2); g.fillStyle = fill; g.fill();
-  alpha(clamp((s - 0.5) * 3) * a);
-  g.fillStyle = color; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(text, cx, cy + 1);
-  g.restore();
-  return w;
-}
-
-// Logo image if captured, otherwise the product name set in the display face.
-function logo(cx, cy, w, s = 1, name = 'Product') {
-  g.save(); alpha(s * 1.5);
-  g.translate(cx, cy); g.scale(0.85 + 0.15 * s, 0.85 + 0.15 * s);
-  if (IMG.logo) { const h = w * IMG.logo.height / IMG.logo.width; g.drawImage(IMG.logo, -w / 2, -h / 2, w, h); }
-  else { g.font = fontD(w / 4); g.fillStyle = T.fg; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(name, 0, 0); }
-  g.restore();
-}
-
-// Scene exit over the last 0.22 s: slide left + fade, applied to everything via SA.
-function exitFx(t, len) {
-  const k = clamp((t - (len - 0.22)) / 0.22) ** 2;
-  g.translate(-140 * k, 0); SA = 1 - k; g.globalAlpha = SA;
-}
-
-// ---------- scenes (replace with one object per shot from docs/shotlist.md) ----------
 const SCENES = [
-  { from: 0, to: 2.5, draw(t, len) {                                  // hook: the problem, huge, in 2 s
-      exitFx(t, len);
-      const size = PORTRAIT || SQUARE ? 120 : 150;
-      words('Stop losing leads.', DW / 2, DH / 2, t, { size, align: 'center', hi: [2], maxW: DW - 160 });
+  { from: 0, to: B(5.5), draw(t) {                          // open: dot -> pill -> click -> flood
+      const m = morphBox({ ...DOT, fill: T.accent }, { ...PILL, fill: T.fg }, sp(t - B(1), 'snappy'));
+      const pop = clamp(sp(t, 'playful'), 0, 1.2), press = clamp(1 - Math.abs(t - B(3.5)) / 0.12);
+      g.save(); g.translate(P.x, P.y); g.scale(pop * (1 - 0.05 * press), pop * (1 - 0.05 * press)); g.translate(-P.x, -P.y);
+      alpha(1); rrect(m.x, m.y, m.w, m.h, m.r); g.fillStyle = m.fill; g.fill();
+      rrect(m.x, m.y, m.w, m.h, m.r); g.clip();
+      maskRise('Get started', P.x, P.y + 19, t - B(1.6), { size: 54, weight: 600, color: T.bg, align: 'center', font: fontU(54, 600) });
+      g.restore();
+      const cur = cursorPath(t, [[0, DW + 80, DH * 0.9], [B(2), P.x + 200, P.y + 160], [B(3), P.x + 70, P.y + 22]], [B(3.5)]);
+      ripple(P.x + 70, P.y + 22, t - B(3.5));
+      cursor(cur.x, cur.y, cur.press, clamp((t - B(2)) * 4));
+      flood(P.x, P.y, sp(t - B(4), 'base') * 1.05, { color: T.fg });
   }},
-  { from: 2.5, to: 7, draw(t, len) {                                  // product: real UI, cursor does a real action
-      exitFx(t, len);
-      const cw = PORTRAIT ? DW - 120 : DW * 0.62;
-      const s = sp(t, 'heavy');
-      const ch = cw * (IMG.dash ? IMG.dash.height / IMG.dash.width : 10 / 16);
-      const x = (DW - cw) / 2, y = PORTRAIT ? DH * 0.42 : (DH - ch) / 2 + 30;
-      if (PORTRAIT) words('Every lead, one inbox.', 60, DH * 0.26, t - 0.2, { size: 84, maxW: DW - 120 });
-      else label('Inbox', x, y - 30, t - 0.1, { size: 22 });
-      shot(IMG.dash, x, y + (1 - s) * 60, cw, { a: s * 1.5, s: 0.94 + 0.06 * s });
-      const tx = x + cw * 0.3, ty = y + ch * 0.38;
-      const cx = track(t, [[0, x + cw + 80], [0.8, tx + 40], [1.6, tx]], 170, 26);
-      const cy = track(t, [[0, y + ch + 80], [0.8, ty + 30], [1.6, ty]], 170, 26);
-      ring(tx - cw * 0.06, ty - ch * 0.05, cw * 0.4, ch * 0.1, sp(t - 2.0, 'snappy'));
-      ripple(cx, cy, t - 1.9);
-      cursor(cx, cy, clamp(1 - Math.abs(t - 1.9) / 0.12), clamp(t * 3));
+  { from: B(4.5), to: B(15), draw(t) {                       // product: split headline + live UI in 3D, camera push
+      const lt = t - B(5);                                    // local time from the reveal
+      if (lt < 0) { alpha(1); g.fillStyle = T.fg; g.fillRect(0, 0, DW, DH); return; }
+      background();
+      // collapse to the accent dot (handoff to the end card) on beat 14.5
+      const k = 1 - sp(t - B(14.5), 'base');
+      g.save(); g.translate(TOG.x, TOG.y); g.scale(Math.max(0.001, k), Math.max(0.001, k)); g.translate(-TOG.x, -TOG.y);
+
+      const z = track(t, [[B(5), 0.94], [B(6), 1], [B(10), 1.55]], 120, 24);
+      const fx = track(t, [[B(5), DW / 2], [B(10), TOG.x]], 120, 24), fy = track(t, [[B(5), DH / 2], [B(10), TOG.y]], 120, 24);
+      g.save(); camera(z, fx, fy);
+      const ui = WIDE ? { x: DW * 0.71, y: DH * 0.55, w: 1180 } : { x: DW * 0.52, y: DH * 0.64, w: DW * 1.05 };
+      const rise = sp(lt - 0.1, 'heavy');
+      plane3d(IMG.dash, ui.x, ui.y + (1 - rise) * DH * 0.6, ui.w, {
+        ry: track(t, [[B(5), WIDE ? -24 : 0], [B(10), 0]], 120, 24), rx: track(t, [[B(5), 16], [B(10), 0]], 120, 24),
+        rz: track(t, [[B(5), -3], [B(10), 0]], 120, 24), blur: 3 * clamp((t - B(10)) / 0.5) });
+      // live number on the UI
+      if (t > B(8)) {
+        const cs = sp(t - B(8), 'snappy'), cx0 = ui.x - (WIDE ? 420 : 160), cy0 = ui.y - (WIDE ? 300 : 360);
+        g.save(); g.translate(cx0, cy0); g.scale(clamp(cs, 0, 1.1), clamp(cs, 0, 1.1));
+        card(-170, -64, 340, 128, { r: 22 });
+        countUp(0, 12480, -136, 14, t - B(8.4), { size: 52, dur: 1.2 });
+        label('Leads synced', -136, 48, t - B(8.6), { size: 16, color: T.muted });
+        g.restore();
+      }
+      // the action the cursor performs, in focus while the UI behind goes soft
+      const ts = sp(t - B(10.5), 'snappy');
+      if (ts > 0) {
+        g.save(); g.translate(TOG.x, TOG.y); g.scale(clamp(ts, 0, 1.1), clamp(ts, 0, 1.1));
+        card(-210, -58, 420, 116, { r: 26 });
+        g.font = fontU(30, 600); g.fillStyle = T.fg; g.textBaseline = 'middle'; alpha(1); g.fillText('Auto-reply', -176, 2);
+        toggle(64, -25, sp(t - B(12), 'snappy'));
+        g.restore();
+      }
+      // the result lands on the next beat, so the click never sits still
+      const rs = sp(t - B(13), 'snappy');
+      if (rs > 0) {
+        g.save(); g.translate(TOG.x, TOG.y + 118); g.scale(clamp(rs, 0, 1.1), clamp(rs, 0, 1.1));
+        g.font = fontU(30, 600); const cw = g.measureText('✓  Replied in 2 s').width + 60 * 0.8;
+        chip('✓  Replied in 2 s', -cw / 2, -30, { size: 30, h: 60, fill: T.fg, color: T.bg });
+        g.restore();
+      }
+      const cur = cursorPath(t, [[B(10), TOG.x + 260, TOG.y + 220], [B(11.4), TOG.x + 128, TOG.y + 6], [B(12.6), TOG.x + 210, TOG.y + 150]], [B(12)]);
+      ripple(TOG.x + 128, TOG.y + 6, t - B(12));
+      cursor(cur.x, cur.y, cur.press, clamp((t - B(10.2)) * 4) * clamp((B(14.5) - t) * 4));
+      g.restore();
+
+      // headline, outside the camera so it stays crisp; letters leave through the same mask line
+      const hx = WIDE ? 120 : 80, hy = WIDE ? DH * 0.42 : DH * 0.2, hs = WIDE ? 120 : 112;
+      scramble('INBOX / LIVE', hx, hy - hs * 1.25, lt - 0.05, { size: 20, color: T.muted, dur: 0.5, out: B(9.5) - B(5) });
+      const l1 = B(5) + 0.2, l2 = B(5) + 0.45;               // line starts; both leave on beat 9.5
+      maskRise('Every lead.', hx, hy, t - l1, { size: hs, out: B(9.5) - l1, accentLast: true });
+      maskRise('One inbox.', hx, hy + hs * 1.02, t - l2, { size: hs, out: B(9.6) - l2, accentLast: true });
+      g.restore();
+      contract(P.x, P.y, sp(lt, 'base') * 1.05, { color: T.fg });   // the flood opens onto this scene
+      if (k < 0.999) { alpha(1); g.fillStyle = T.accent; g.beginPath(); g.arc(TOG.x, TOG.y, 16 * (1 - k) + 8, 0, Math.PI * 2); g.fill(); }
   }},
-  { from: 7, to: DUR, draw(t) {                                       // logo + CTA
-      logo(DW / 2, DH / 2 - 90, PORTRAIT ? 560 : 480, sp(t, 'heavy'));
-      const b = sp(t - 0.45, 'snappy');
-      if (b > 0) pill('Try it free', DW / 2, DH / 2 + 90, b, { size: 32, h: 84, padX: 52 });
-      label('product.com', DW / 2, DH / 2 + 200, t - 0.8, { size: 24, color: T.muted, align: 'center' });
+  { from: B(15), to: DUR, draw(t) {                          // end card: dot travels into the wordmark's period
+      const size = PORTRAIT ? 150 : 170, cy = DH / 2 - (PORTRAIT ? 80 : 60);
+      g.save(); g.font = fontD(size, 800); g.letterSpacing = `${size * T.track}px`;
+      const ww = g.measureText('Product').width; g.restore();
+      const dotX = DW / 2 - size * 0.12 + ww / 2 + size * 0.17, dotY = cy + size * 0.35 - size * 0.11;
+      maskRise('Product', DW / 2 - size * 0.12, cy + size * 0.35, t - B(16), { size, weight: 800, align: 'center', stagger: 0.035 });
+      const dx = track(t, [[B(15), TOG.x], [B(15.5), dotX]], 170, 26), dy = track(t, [[B(15), TOG.y], [B(15.5), dotY]], 170, 26);
+      const dr = track(t, [[B(15), 24], [B(16.5), size * 0.11]], 170, 26);
+      alpha(1); g.fillStyle = T.accent; g.beginPath(); g.arc(dx, dy, dr, 0, Math.PI * 2); g.fill();
+      const b = sp(t - B(18), 'snappy');
+      if (b > 0) pill('Try it free', DW / 2, cy + size + 40, b, { size: 32, h: 84, padX: 52, fill: T.fg, color: T.bg });
+      typeOn('product.com', DW / 2 - 92, cy + size + 150, t - B(19), { size: 28, color: T.muted, font: fontM(28) });
+      if (Q.has('mascot')) {
+        const hop = t - B(20), y = DH / 2 + (PORTRAIT ? 420 : 300) - 140 * Math.max(0, Math.sin(Math.PI * clamp(hop / 0.5)));
+        const land = clamp(1 - Math.abs(hop - 0.5) / 0.12);
+        if (hop > 0) mascot(DW / 2 - (PORTRAIT ? 260 : 420), y, 110, t, { squash: land * 0.8 - (hop < 0.5 ? 0.3 : 0), look: [1, -0.3] });
+      }
   }},
 ];
 
 function background() {
-  g.fillStyle = T.bg; g.fillRect(0, 0, DW, DH);
+  alpha(1); g.fillStyle = T.bg; g.fillRect(0, 0, DW, DH);
   if (T.grid) {
     g.fillStyle = 'rgba(255,255,255,0.045)';
     for (let x = 40; x < DW; x += 48) for (let y = 30; y < DH; y += 48) g.fillRect(x, y, 2, 2);
@@ -218,12 +180,12 @@ function background() {
 }
 
 function draw(t) {
-  g.setTransform(S, 0, 0, S, 0, 0);
+  g.setTransform(S, 0, 0, S, 0, 0); g.filter = 'none';
   SA = 1; g.globalAlpha = 1;
-  background(t);
+  background();
   for (const s of SCENES) if (t >= s.from && t < s.to) {
     SA = 1; g.globalAlpha = 1;
-    g.save(); s.draw(t - s.from, s.to - s.from); g.restore();
+    g.save(); s.draw(t); g.restore();
   }
 }
 window.DUR = DUR;
