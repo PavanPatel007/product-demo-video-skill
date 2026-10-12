@@ -1,73 +1,76 @@
-# Product Demo Video skill
+# Product Demo Video
 
-An agent skill that turns a product URL into a polished demo video, rendered from code.
-It is tuned for **Claude Opus 5.5** and works with any agent that can run shell commands:
-Claude Code, Cursor, Codex, and others.
+An agent skill that turns a product URL into a launch or demo video, rendered from code.
+Your AI agent captures the real product, plans shots on a beat grid, animates them in the
+style of the most-shared Claude Opus 5.5 videos, critiques its own frames until every score is
+8+, and renders 16:9, 9:16 and 1:1 MP4s with music, sound effects and an optional voiceover.
 
-How a run goes:
+![The built-in 11-second template (placeholder UI) before your product goes in](docs/media/template.gif)
 
-1. **Model check.** If you're not on Claude Opus 5.5, you get a gentle reminder and how to
-   switch, then you choose to switch or continue.
-2. **A few questions.** Style, length, formats, music, look, mascot, and an optional
-   **AI voiceover**. Voiceover providers are listed in this order: ElevenLabs (recommended),
-   OpenAI, Google Cloud, Azure, or a free local voice. Each one is marked by whether its API
-   key is already in `.env`.
-3. **Real assets.** It screenshots your site and app, including logged-in pages (read-only),
-   and pulls brand colors, fonts and logo.
-4. **Shot list on a beat grid.** You approve it once. After that it works without stopping.
-5. **Build and self-critique.** A deterministic `window.seek(t)` canvas animation in the style
-   of the viral Opus 5.5 videos (see below). It renders one still per beat, looks at them,
-   scores 1-10, fixes the 3 worst problems, and repeats until every score is 8+. A motion audit
-   then checks the real render for frozen moments and single-frame pops.
-6. **Render.** 60 fps H.264 in 16:9, 9:16 and 1:1. Synthesized music, UI sound effects and
-   voice are mixed to -14 LUFS, and the music ducks under narration.
-7. **Cost report.** For example: *"This 56-second video used 3.1M tokens and cost about $9.40,
-   plus $0.18 for the voiceover."*
+*The built-in 11-second template with placeholder UI. Your run replaces it with your real
+screens, copy, colors and fonts.*
 
-The method comes from
-[How to build motion design studio with Opus 5.5](https://x.com/0xMovez/status/2104216919033192746).
-
-## The look
-
-The default look is a study of the most-shared Opus 5.5 videos (for example
-[zero's keynote film](https://x.com/twoclipping/status/2103835273813496100),
-[Leon Lin's calendar launch](https://x.com/LexnLin/status/2104148233106723099) and
-[Kenn Ejima's showreel](https://x.com/kenn/status/2103337314021937232)), measured frame by
-frame. The full notes are in [`research.md`](skills/product-demo-video/research.md).
-
-- **One continuous take.** No crossfades: a dot becomes a pill, a pill floods the frame, the
-  flood contracts onto the product, and the scene collapses back into the dot that becomes the
-  wordmark's period.
-- **Camera.** Screen-studio zooms toward the cursor, with the real UI on a 3D plane that
-  straightens as the camera pushes in, and depth blur behind a sharp focus card.
-- **Type.** Letters rise out of a mask line, plus scramble/decode, typed text, word slams,
-  count-ups and strike-throughs.
-- **Pacing.** Something changes on every beat, and nothing holds longer than 1 s.
-- **Character.** An optional box mascot with squash and stretch, blinks, and eyes that follow
-  the cursor.
-- **Reference matching.** `ref.mjs` analyzes any video or X post: contact sheet, cuts, palette,
-  loudness, motion, and the creator's prompt if the post has one.
+Works with any agent that can run shell commands: **Claude Code, Codex, Cursor, Gemini CLI,
+GitHub Copilot, OpenCode** and others that read the open Agent Skills format (`SKILL.md`). It's tuned for Claude Opus 5.5 and says so
+(once) if you're on another model.
 
 ## Install
 
-```bash
-git clone https://github.com/PavanPatel007/product-demo-video-skill.git
-cd product-demo-video-skill
-./install.sh            # copies the skill into every agent skills folder it finds
+Pick your tool. Every option installs the same skill.
+
+| Tool | Install |
+|---|---|
+| **Claude Code** | `/plugin install product-demo-video --marketplace PavanPatel007/product-demo-video-skill` |
+| **Codex** (CLI or app) | `codex plugin marketplace add PavanPatel007/product-demo-video-skill` then `codex plugin add product-demo-video@product-demo-video` |
+| **Gemini CLI** | `gemini extensions install https://github.com/PavanPatel007/product-demo-video-skill` |
+| **Cursor, Copilot, OpenCode and other agents** | `npx skills add PavanPatel007/product-demo-video-skill` |
+| **Every agent on this machine at once** | `curl -fsSL https://raw.githubusercontent.com/PavanPatel007/product-demo-video-skill/main/install.sh \| bash` |
+| **Claude.ai / Claude desktop** | Download `product-demo-video.zip` from [Releases](https://github.com/PavanPatel007/product-demo-video-skill/releases/latest), then Settings → Capabilities → Skills → Upload |
+
+<details>
+<summary>Older Claude Code, manual install, updating</summary>
+
+**Claude Code before 2.1.275:**
+
+```text
+/plugin marketplace add PavanPatel007/product-demo-video-skill
+/plugin install product-demo-video@product-demo-video
 ```
 
-Or install by hand by copying `skills/product-demo-video` into your agent's skills folder:
+**Manual:** copy `skills/product-demo-video` into your agent's skills folder:
 
 | Agent | Skills folder |
 |---|---|
 | Claude Code | `~/.claude/skills/` (or `.claude/skills/` in a project) |
 | Cursor | `~/.cursor/skills/` |
-| Codex CLI | `~/.codex/skills/` |
-| `npx skills` | `npx skills add PavanPatel007/product-demo-video-skill` |
-| Anything else | Point the agent at `skills/product-demo-video/SKILL.md`; `AGENTS.md` explains it |
+| Codex | `~/.agents/skills/` (older versions: `~/.codex/skills/`) |
+| Gemini CLI | `~/.gemini/skills/` |
+| GitHub Copilot | `~/.copilot/skills/` |
+| OpenCode | `~/.config/opencode/skills/` |
+| Anything else | Point the agent at `skills/product-demo-video/SKILL.md`; [`AGENTS.md`](AGENTS.md) explains it |
 
-Requirements are Node 18+, ffmpeg, and Chromium for Playwright (the skill installs Playwright
-per project). Python with librosa is only needed if you bring your own music track.
+**Update:** re-run the install command, or use your tool's updater: `npx skills update`,
+`codex plugin marketplace upgrade`, `gemini extensions update product-demo-video`, or
+`/plugin` in Claude Code.
+</details>
+
+### Web chat apps (Claude.ai, ChatGPT)
+
+The skill renders video with headless Chromium and ffmpeg on your machine. Web chat sandboxes
+can follow the method (brief, shot list, the animation code) but usually can't capture your
+site or render the MP4. For the full pipeline, use a local agent: Claude Code or the Claude
+desktop app's Code tab, or Codex for ChatGPT users.
+
+### Requirements
+
+Node 18+, ffmpeg, and git. The skill installs Playwright and Chromium in each video project.
+Python with librosa is only needed if you bring your own music track. On Windows, use WSL or
+Git Bash (the mixing scripts are bash).
+
+```bash
+brew install node ffmpeg              # macOS
+sudo apt install nodejs npm ffmpeg    # Debian / Ubuntu
+```
 
 ## Use
 
@@ -75,12 +78,54 @@ Ask your agent:
 
 > Make a 30-second launch video for https://yourproduct.com
 
-or name the skill: *"Use the product-demo-video skill for https://yourproduct.com"*.
+or name the skill: *"Use the product-demo-video skill for https://yourproduct.com"*. To match
+a video you like, add it: *"...in the style of https://x.com/someone/status/123"*.
+
+How a run goes:
+
+1. **Model check.** If you're not on Claude Opus 5.5, a one-time reminder and how to switch.
+2. **A few questions.** Style, length, formats, music, look, mascot and an optional AI
+   voiceover (ElevenLabs, OpenAI, Google Cloud, Azure, or a free local voice).
+3. **Real assets.** Screenshots of your site and app (logged-in pages are read-only), plus
+   brand colors, fonts and logo.
+4. **Shot list on a beat grid.** You approve it once; after that it works without stopping.
+5. **Build and self-critique.** It renders one still per beat, looks at them, scores 1-10,
+   fixes the 3 worst problems and repeats until every score is 8+.
+6. **Render and audit.** 60 fps H.264, music and sound effects mixed to -14 LUFS, then a
+   motion audit checks for frozen moments, single-frame pops and sounds out of sync.
+7. **Cost report.** For example: *"This 56-second video used 3.1M tokens and cost about
+   $9.40, plus $0.18 for the voiceover."*
+
+## The look
+
+The default look comes from studying the most-shared Opus 5.5 videos frame by frame (for
+example [zero's keynote film](https://x.com/twoclipping/status/2103835273813496100),
+[ultima's food-craving launch](https://x.com/ultimaxbt/status/2108210884799549714) and
+[Leon Lin's calendar launch](https://x.com/LexnLin/status/2104148233106723099)). The notes,
+sources and measurements are in [`research.md`](skills/product-demo-video/research.md).
+
+- **One continuous take.** No crossfades. The wordmark squeezes into its own period, the dot
+  becomes a pill, the pill floods the frame, the flood contracts onto the product, and the end
+  card reverses the opening, so the last frame matches the first.
+- **Camera.** Screen-studio zooms toward what the cursor touches: one smooth glide per scene,
+  never reversing. The real UI sits on a 3D plane that straightens as the camera pushes in.
+- **Transitions.** Floods, an iris with real blades, glass panels, shapes that split and merge,
+  and one morph table that drives a shape through every state.
+- **Type.** Letters rise out of a mask line, plus scramble, typing with a human rhythm,
+  count-ups and strike-throughs.
+- **Pacing and sound.** Something changes on every beat, nothing holds longer than 1 s, and
+  every visible event has a sound.
+- **Motion blur without ghosts.** The renderer measures how far things move in each frame and
+  blends enough samples to make a smooth streak, while still frames stay sharp.
+
+Brief templates cover keynote launches, agent and chat products, "inside the period" loops,
+kinetic showreels, UI morph loops and 45 s+ flagship films
+([`briefs.md`](skills/product-demo-video/briefs.md)).
 
 ## Voiceover keys
 
-Put keys in `.env` in the video project folder. Never paste them into chat.
-See [`studio/env.example`](skills/product-demo-video/studio/env.example).
+Put keys in `.env` in the video project folder, never in chat. See
+[`env.example`](skills/product-demo-video/studio/env.example).
 
 | Provider | Key |
 |---|---|
@@ -94,45 +139,56 @@ See [`studio/env.example`](skills/product-demo-video/studio/env.example).
 
 `cost-report.mjs` gets token counts from the first source it finds:
 
-- **Claude Code and Codex:** exact counts, read from their local session logs for the project folder.
+- **Claude Code and Codex:** exact counts from their local session logs for the project folder.
 - **Cursor and other IDEs:** these don't expose usage to the agent, so the skill asks you for
   the numbers from your usage page.
 - **Last resort:** a clearly labeled lower-bound estimate.
 
 Prices are in [`pricing.json`](skills/product-demo-video/studio/pricing.json), which you can
-edit. Claude Opus 5.5 is $4 per million input tokens and $20 per million output tokens; cache
-reads are $0.20 per million. Subscription plans bill differently, so the report shows the
-pay-as-you-go API equivalent.
+edit. Subscription plans bill differently, so the report shows the pay-as-you-go API equivalent.
 
 ## What's inside
 
 ```
 skills/product-demo-video/
   SKILL.md            the workflow the agent follows
-  research.md         the Opus 5.5 style: sources, measurements, grammar
-  briefs.md           prompt templates + critique pass
+  research.md         the Opus 5.5 style: sources, measurements, grammar, gotchas
+  briefs.md           brief templates + the critique pass
   voiceover.md        providers, voice choice, script timing
   studio/             copied into each video project
-    render.mjs        seek(t) → frames → ffmpeg (--stills beats for one still per beat)
-    index.html        11 s keynote-take template, themes, design space
-    lib/motion.js     springs, track(), seeded rng
-    lib/kit.js        mask-rise type, scramble, count-up, 3D UI plane, camera, flood, iris, mascot
+    index.html        11 s keynote-take template (seek(t), themes, beat grid, sound cues)
+    lib/motion.js     springs, track(), glide curve, keyed tables, seeded rng
+    lib/kit.js        type, UI cards, 3D plane, camera paths, flood, iris, glass, goo, footage
+    render.mjs        frames → ffmpeg, adaptive motion blur, --stills, --verify, --cues
+    motion-audit.mjs  holds, single-frame pops, dead seconds, loop seam, sound sync
     ref.mjs           analyze a reference video or X post
-    motion-audit.mjs  holds, single-frame pops, dead seconds, loop seam
+    prep-footage.mjs  real video → frame sequence the renderer can seek exactly
     capture-*.mjs     site/app/component screenshots, brand.json
-    probe-targets.mjs CSS boxes for cursor/ring targets
-    doctor.mjs        toolchain + voice key check (names only)
     voiceover.mjs     ElevenLabs / OpenAI / Google / Azure / local TTS
-    music.mjs sfx.mjs synthesized score + UI sounds, or your SFX files placed by their peak
-    beats.py          beat grid for a supplied track
-    mix.sh            ducking + -14 LUFS two-pass loudnorm
-    check.sh          contact sheet, motion strip, phone test, poster, motion audit
-    cost-report.mjs   tokens + $ per video
+    music.mjs sfx.mjs synthesized score and UI sounds, or your SFX files placed by their peak
+    mix.sh check.sh   ducking + -14 LUFS loudness; contact sheet, phone test, motion audit
+    cost-report.mjs   tokens and $ per video
 tests/smoke.sh        end-to-end check of the whole pipeline
 ```
 
-## Test
+## Contributing
 
 ```bash
-./tests/smoke.sh      # scaffolds a temp project and runs every stage, ~1-2 minutes
+./tests/smoke.sh      # scaffolds a temp project and runs every stage, about a minute
 ```
+
+CI runs the same test on every push. Keep `SKILL.md` agent-neutral, keep the studio free of
+dependencies beyond Playwright and ffmpeg, and bump the version in every manifest together
+(see [`AGENTS.md`](AGENTS.md)).
+
+## Credits
+
+The method builds on Movez's
+[How to build a motion design studio with Opus 5.5](https://x.com/0xMovez/status/2104216919033192746)
+and the prompts zero ([@twoclipping](https://x.com/twoclipping)) and ultima
+([@ultimaxbt](https://x.com/ultimaxbt)) shared openly. Reference videos are linked, never
+redistributed.
+
+## License
+
+[MIT](LICENSE)

@@ -1,0 +1,27 @@
+{
+  "name": "product-demo-video",
+  "version": "1.0.0",
+  "description": "Turns a product URL into a launch or demo video rendered from code, with real screenshots, beat-synced sound and a self-critique loop.",
+  "author": {
+    "name": "Pavan Patel",
+    "url": "https://github.com/PavanPatel007"
+  },
+  "homepage": "https://github.com/PavanPatel007/product-demo-video-skill",
+  "repository": "https://github.com/PavanPatel007/product-demo-video-skill",
+  "license": "MIT",
+  "keywords": ["video", "motion-design", "product-demo", "launch-video", "skills"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Product Demo Video",
+    "shortDescription": "Product URL in, launch video out, rendered from code",
+    "longDescription": "Captures your real product, plans shots on a beat grid, animates a deterministic canvas film in the Opus 5.5 motion style (one continuous take, 3D UI, flood and iris transitions), scores its own frames until every score is 8+, and renders 16:9, 9:16 and 1:1 MP4s with music, sound effects and an optional voiceover.",
+    "developerName": "Pavan Patel",
+    "category": "Productivity",
+    "capabilities": ["Interactive", "Read", "Write"],
+    "defaultPrompt": [
+      "Make a 30-second launch video for https://example.com",
+      "Turn our app's dashboard into a 15-second product reel"
+    ],
+    "websiteURL": "https://github.com/PavanPatel007/product-demo-video-skill"
+  }
+}

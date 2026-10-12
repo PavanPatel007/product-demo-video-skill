@@ -1,0 +1,20 @@
+{
+  "name": "product-demo-video",
+  "description": "Code-rendered product demo and launch videos in the Opus 5.5 motion style",
+  "owner": {
+    "name": "Pavan Patel",
+    "url": "https://github.com/PavanPatel007"
+  },
+  "plugins": [
+    {
+      "name": "product-demo-video",
+      "description": "Turns a product URL into a launch or demo video rendered from code, with real screenshots, beat-synced sound and a self-critique loop.",
+      "version": "1.0.0",
+      "source": "./",
+      "author": {
+        "name": "Pavan Patel",
+        "url": "https://github.com/PavanPatel007"
+      }
+    }
+  ]
+}

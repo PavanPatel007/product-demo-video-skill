@@ -139,9 +139,13 @@ Capture gotchas:
    It downloads the video (and the post text, which often holds the creator's full prompt),
    and writes `refs/<name>/sheet.png` (2 frames per second), cuts, shot lengths, palette,
    loudness and a motion audit to `refs/<name>/analysis.md`. Open the sheet and look at it.
+   No reference but want one? Browse [whatships.com](https://whatships.com) (a library of Opus 5.5
+   videos linking to the original posts) and pick one whose grammar fits the product.
 3. Pick the template in [briefs.md](briefs.md): E keynote continuous take (the default `look`),
-   A kinetic launch, B UI morph loop, D flagship 45 s+; walkthroughs use E with real app screens.
-   Append C if there's a voiceover or mascot. Fill it and save `docs/brief.md`.
+   F agent / chat product (the user types a request, the product does the work), G inside the
+   period (looping; products that work while the user is away), A kinetic launch, B UI morph
+   loop, D flagship 45 s+; walkthroughs use E with real app screens. Append C if there's a
+   voiceover or mascot. Fill it and save `docs/brief.md`.
 4. `docs/style_guide.md`: from `refs/*/analysis.md` if there's a reference, otherwise from
    `assets/brand.json`. Palette in hex, one display face, one UI face, one accent.
    For "Both", define the second look as `THEMES.house` in `index.html`.
@@ -164,26 +168,43 @@ continue without stopping until delivery.
 ## Step 5: Build
 
 Edit `index.html`: set `DUR`, `BPM`, `THEMES.brand`, `FONTS`, `ASSETS`, then replace the example
-`SCENES` (a working 11 s keynote take: dot → pill → click → flood → 3D UI with headline →
-camera push → toggle → collapse into the dot → wordmark). Scenes get absolute `t`; place every
+`SCENES` (a working 11 s keynote take: wordmark squeezes into its period → dot → pill → click →
+flood → 3D UI with headline → camera push → toggle → collapse into the dot → the letters spring
+back out of the period, so the last frame equals the first). Scenes get absolute `t`; place every
 event with `B(n)` (beat n) and let neighbouring scenes overlap so one hands off to the next.
 
 The kit (`lib/kit.js`) does the Opus 5.5 grammar; use it instead of writing effects from scratch:
 - Type: `maskRise` (letters rise out of a line, `out` to leave, `accentLast` for the period),
-  `words`, `scramble`, `typeOn`, `slam`, `countUp`, `strike`, `label`, `wordmark`.
-- UI: `card`, `pill`, `chip`, `toggle`, `shot` (screenshot or sub-rect), `ring`, `cursorPath`,
-  `cursor`, `ripple`.
-- Camera and depth: `camera(zoom, focusX, focusY)`, `plane3d(img, cx, cy, w, {rx, ry, rz, blur})`
-  (perspective UI plane), `blurred(px, fn)`.
-- Transitions: `morphBox`, `flood`, `contract`, `iris`, `mixColor`.
+  `words`, `scramble`, `typeOn` (seeded human keystroke rhythm; put `\n` in the text for fixed
+  lines; `typeTimes` gives the same times for key sounds), `slam`, `countUp`, `strike`, `label`,
+  `wordmark`, `squeeze` (letters slide into the period; `at: 'dot'` pins the dot).
+- UI: `card` (`lift` grows the shadow with height), `pill`, `chip`, `toggle`, `shot` (screenshot
+  or sub-rect), `ring`, `cursorPath`, `cursor`, `ripple`, `glass` (blurred backdrop, tint, inner
+  edge, rim).
+- Camera and depth: `camPath(t, [[time, zoom, x, y], ...])` (one glide per key, zoom in log
+  space: the default camera), `camera(zoom, focusX, focusY)`, `plane3d(img, cx, cy, w,
+  {rx, ry, rz, blur})` (perspective UI plane), `blurred(px, fn)`.
+- Transitions: `morphBox`, `states(t, table)` (one morph table of beat times: size, radius,
+  colour), `flood`, `contract` (`area: true` eases by area), `iris` (six real blades, eased by
+  area), `portal` (open a dot onto another world), `goo` (split / merge), `mixColor`.
+- Timing (lib/motion.js): springs `sp()` for pops and landings, `glide(t, 0.8)` on
+  cubic-bezier(.45,0,.15,1) for anything that travels, `keyed()` for multi-key glides.
+- Layers: `layerCtx(name)` + `withCtx(ctx, fn)` draw a world offscreen (needs `let g`, not
+  `const g`).
+- Footage (wall shadows, sunrise, a screen recording): `node prep-footage.mjs in.mov wall` →
+  frame sequence; `FOOTAGE = {wall: 'assets/footage/wall'}`; `footage('wall', localT, x, y, w)`.
+  Keep `window.seek = seekWith(draw)` so frames load before capture.
 - Character: `mascot(x, y, size, t, {look, squash})` (`?mascot=1` in the template).
 
 Use `sp(t, 'snappy'|'base'|'heavy'|'playful')` for entrances and `track()` for anything with
-several targets (cursor, camera). Lay out in design units with `DW`, `DH`, `PORTRAIT`, `SQUARE`
+several targets (cursor). Lay out in design units with `DW`, `DH`, `PORTRAIT`, `SQUARE`
 so one timeline reframes per format. Ring and click on real boxes from `assets/targets.json`.
-Write `sfx_cues.json`: synthesized `{"t": 2.5, "type": "click"}` (click, pop, thump, whoosh,
-chime, tick, swish, riser) or file SFX `{"t": 2.5, "file": "sfx/click.wav", "gain": 0.8}`,
-placed by the file's loudest sample. Every visible event gets a sound.
+
+Sound cues live in `index.html` next to the events they score: the `CUES` array, synthesized
+`{t: B(4), type: 'click'}` (click, pop, thump, whoosh, chime, tick, swish, riser, key) or file SFX
+`{t: B(4), file: 'sfx/click.wav', gain: 0.8}`, placed by the file's loudest sample. Every visible
+event gets a sound; typed text gets a `key` per letter from `typeTimes`. If the film has
+deliberate hard cuts, list their times in `window.CUTS` so motion blur never smears across them.
 
 ## Step 6: Critique loop (minimum 3 rounds)
 
@@ -203,18 +224,28 @@ are done. For 45 s+ films, render an animatic first: `--w 960 --h 540 --sub 1`.
 Per format (16:9 `1920x1080`, 9:16 `1080x1920`, 1:1 `1080x1080`) and per theme:
 
 ```bash
-node render.mjs --w 1920 --h 1080 --out out/silent_16x9.mp4          # 60 fps, --sub 4 motion blur
+node render.mjs --verify                                              # same frame in any seek order
+node render.mjs --w 1920 --h 1080 --out out/silent_16x9.mp4          # 60 fps, adaptive motion blur
+node render.mjs --cues sfx_cues.json                                  # window.CUES -> sfx_cues.json
 node sfx.mjs sfx_cues.json out/sfx.wav
 ./mix.sh out/silent_16x9.mp4 deliver/final_16x9.mp4 audio/music.wav out/sfx.wav [--voice audio/voice.wav]
 ./check.sh deliver/final_16x9.mp4 <seconds-of-fastest-action> [--loop]
 ```
 
-Grab 2-3 full-res frames mid-move from the final MP4 (`ffmpeg -ss <t> -i final.mp4 -frames:v 1
-out/f.png`); if small screenshot text ghosts, re-render with `--sub 2` (or `--sub 1`).
+`--verify` must pass before the first full render; a mismatch means state is carried between
+frames (a cache, a counter, an unseeded random). Motion blur is `--sub auto` by default: each frame
+block-matches the two ends of a 180° shutter (`--shutter 0.5`) and spaces samples so nothing moves
+more than 3 px between them, up to `--max-sub 32`. Still frames stay single-sample and sharp; fast
+moves get as many samples as they need, so there are no ghost copies. `--sub N` forces N samples
+(`--sub 1` for animatics). After a fix, re-render only the changed seconds with `--from 12 --to 16`.
+
+Grab the fastest frame from the final MP4 at full resolution (`ffmpeg -ss <t> -i final.mp4
+-frames:v 1 out/f.png`) and look at it 1:1: edges should streak, never step.
 
 `check.sh` also runs `motion-audit.mjs`, which prints motion per second and lists every hold
-over 1 s, every single-frame pop, dead seconds and (with `--loop`) the seam. Fix every hold
-and every pop that isn't a deliberate downbeat cut. Then open `out/check/contact.png`,
+over 1 s, every single-frame pop, dead seconds, (with `--loop`) the seam, and (when
+`sfx_cues.json` exists) sound sync: visible events with no sound within 0.12 s, and sounds with
+nothing moving. Fix every hold, every pop that isn't a deliberate downbeat cut, and every sync miss. Then open `out/check/contact.png`,
 `strip.png` and `phone.png` and run the critique pass on the real render; fix and re-render
 anything below 8. With a voiceover, listen-check by reading
 `audio/vo_timing.json`: every line must start on its shot and none may overrun.
@@ -260,6 +291,6 @@ the same brand reuses the whole studio.
 - Brief templates and the critique prompt: [briefs.md](briefs.md)
 - Voiceover providers, voices and script timing: [voiceover.md](voiceover.md)
 - Studio files copied into each project: `studio/` (render.mjs, lib/motion.js, lib/kit.js,
-  capture-*.mjs, ref.mjs, motion-audit.mjs, doctor.mjs, voiceover.mjs, music.mjs, sfx.mjs,
+  capture-*.mjs, ref.mjs, prep-footage.mjs, motion-audit.mjs, doctor.mjs, voiceover.mjs, music.mjs, sfx.mjs,
   beats.py, mix.sh, check.sh, cost-report.mjs, pricing.json, house-rules.md, index.html, env.example)
 - Method source: [How to build motion design studio with Opus 5.5](https://x.com/0xMovez/status/2104216919033192746)

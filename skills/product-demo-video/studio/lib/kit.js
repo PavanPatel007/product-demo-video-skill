@@ -74,13 +74,14 @@ function words(text, x, y, t, { size = 80, color = T.fg, maxW = DW - 240, lh = 1
 }
 
 // Glyphs scramble, then settle left to right (decode effect). With `out`, they scramble again and
-// vanish right to left. Seeded: same frame every run.
-function scramble(text, x, y, t, { size = 28, dur = 0.6, color = T.fg, font, seed = 3, align = 'left', out, set = 'ABCDEFGHJKLMNPQRSTUVWXYZ0123456789#%&*' } = {}) {
+// vanish right to left. Seeded, and read at frame time so glyphs don't smear in the motion blur.
+function scramble(text, x, y, t, opts = {}) { return _scramble(text, x, y, frameLocal(t), opts); }
+function _scramble(text, x, y, t, { size = 28, dur = 0.6, color = T.fg, font, seed = 3, align = 'left', out, set = 'ABCDEFGHJKLMNPQRSTUVWXYZ0123456789#%&*' } = {}) {
   if (t <= 0) return 0;
   if (out !== undefined && t > out) {
     const n = text.length, gone = Math.floor(((t - out) / (dur * 0.6)) * n);
     if (gone >= n) return 0;
-    return scramble(text.slice(0, n - gone), x, y, dur * 0.5, { size, dur, color, font, seed: seed + Math.floor((t - out) * 30), align, set });
+    return _scramble(text.slice(0, n - gone), x, y, dur * 0.5, { size, dur, color, font, seed: seed + Math.floor((t - out) * 30), align, set });
   }
   g.save();
   g.font = font || fontM(size); g.letterSpacing = '0px'; g.textBaseline = 'alphabetic'; g.textAlign = 'left';
@@ -100,12 +101,27 @@ function scramble(text, x, y, t, { size = 28, dur = 0.6, color = T.fg, font, see
   return total;
 }
 
+// Keystroke times (seconds from the start) with a human rhythm: seeded jitter, a beat after
+// spaces, a longer one after punctuation. Use the same call for the "key" SFX cues.
+function typeTimes(text, { cps = 22, seed = 11, rhythm = true } = {}) {
+  const r = rng(seed), out = []; let at = 0;
+  for (let i = 0; i < text.length; i++) {
+    out.push(at);
+    const ch = text[i];
+    at += rhythm ? (0.55 + 0.9 * r()) / cps * (/[.,!?;:]/.test(ch) ? 2.6 : ch === ' ' ? 1.35 : 1) : 1 / cps;
+  }
+  return out;
+}
+
 // Typed text with a caret that blinks only when idle. Returns the visible width.
-function typeOn(text, x, y, t, { cps = 22, size = 32, color = T.fg, font, caret = true } = {}) {
+// Lines are fixed: pass one call per line so the camera never chases a wrapping caret.
+function typeOn(text, x, y, t, { cps = 22, size = 32, color = T.fg, font, caret = true, seed = 11, rhythm = true } = {}) {
+  t = frameLocal(t);
   if (t <= 0) return 0;
   g.save();
   g.font = font || fontU(size); g.letterSpacing = '0px'; g.textBaseline = 'alphabetic'; g.textAlign = 'left';
-  const n = Math.min(text.length, Math.floor(t * cps));
+  const times = typeTimes(text, { cps, seed, rhythm });
+  let n = 0; while (n < text.length && times[n] <= t) n++;
   const shown = text.slice(0, n), w = g.measureText(shown).width;
   alpha(1); g.fillStyle = color; g.fillText(shown, x, y);
   const typing = n < text.length;
@@ -129,9 +145,10 @@ function slam(word, cx, cy, t, { size = 220, color = T.fg, field, weight = 900 }
   g.restore();
 }
 
-// Number that counts up with an ease-out; mono face keeps digits from jittering.
+// Number that counts up with an ease-out; mono face keeps digits from jittering. The value is read
+// at frame time, so the digits stay crisp under motion blur.
 function countUp(from, to, x, y, t, { dur = 1, size = 64, color = T.fg, decimals = 0, prefix = '', suffix = '', align = 'left', font } = {}) {
-  const p = 1 - Math.pow(1 - clamp(t / dur), 3);
+  const p = 1 - Math.pow(1 - clamp(frameLocal(t) / dur), 3);
   const v = lerp(from, to, p);
   g.save(); g.font = font || fontM(size, 600); g.letterSpacing = '0px'; g.textAlign = align; g.textBaseline = 'alphabetic';
   alpha(t > 0 ? 1 : 0); g.fillStyle = color;
@@ -172,10 +189,40 @@ function wordmark(text, cx, cy, size, t, { color = T.fg, dot = true } = {}) {
   return [w, x + w + dotR * 1.6];
 }
 
+// Accordion: the wordmark squeezes into its own period. p 0 = full word, 1 = only the dot.
+// Every letter moves toward the dot by the same factor and its drawn width follows, so the
+// letters stay touching (zero's launch-film open; run p backwards for the loop's last beat).
+// Returns the dot { x, y, r } so it can grow into the next shape (pill, iris, portal).
+// at: 'center' centres the full lockup on (x, y); 'dot' pins the dot's centre to (x, y) for every p,
+// so the first frame and the loop's last frame line up exactly.
+function squeeze(text, x, y, size, p, { color = T.fg, weight = 800, dotColor = T.accent, at = 'center' } = {}) {
+  g.save(); g.font = fontD(size, weight); g.letterSpacing = `${size * T.track}px`;
+  g.textBaseline = 'alphabetic'; g.textAlign = 'left';
+  const chars = [...text], ws = chars.map((ch) => g.measureText(ch).width);
+  const total = ws.reduce((a, b) => a + b, 0), r = size * 0.11, gap = size * 0.06;
+  const k = 1 - clamp(p);
+  const edge = at === 'dot' ? x - r - gap * k : x - (total + gap + r * 2) / 2 + total;
+  const base = at === 'dot' ? y + r : y + size * 0.35;
+  alpha(1); g.fillStyle = color;
+  let before = 0;
+  chars.forEach((ch, i) => {
+    if (k > 0.002) {
+      g.save(); g.translate(edge - (total - before) * k, base); g.scale(k, 1); g.fillText(ch, 0, 0); g.restore();
+    }
+    before += ws[i];
+  });
+  const dot = { x: edge + gap * k + r, y: base - r, r };
+  g.fillStyle = dotColor; g.beginPath(); g.arc(dot.x, dot.y, r, 0, Math.PI * 2); g.fill();
+  g.restore();
+  return dot;
+}
+
 // ---------- UI primitives (rebuild real UI with the product's real copy and colors) ----------
-function card(x, y, w, h, { r = 20, fill = T.panel, shadow = true, stroke } = {}) {
+// lift: elevation. The shadow grows with it (and should grow with the shape's height as it morphs),
+// so a card that pops toward the camera reads as rising, not just scaling.
+function card(x, y, w, h, { r = 20, fill = T.panel, shadow = true, stroke, lift = 1 } = {}) {
   g.save(); alpha(1);
-  if (shadow) { g.shadowColor = T.shadow; g.shadowBlur = T.shadowBlur; g.shadowOffsetY = T.shadowBlur * 0.3; }
+  if (shadow) { g.shadowColor = T.shadow; g.shadowBlur = T.shadowBlur * lift * S; g.shadowOffsetY = T.shadowBlur * 0.3 * lift * S; }
   rrect(x, y, w, h, r); g.fillStyle = fill; g.fill();
   g.shadowColor = 'transparent';
   if (stroke) { g.strokeStyle = stroke; g.lineWidth = 1.5; g.stroke(); }
@@ -219,7 +266,7 @@ function shot(img, x, y, w, { src, radius = 22, s = 1, shadow = true } = {}) {
   g.save(); alpha(1);
   g.translate(x + w / 2, y + h / 2); g.scale(s, s); g.translate(-w / 2, -h / 2);
   if (shadow) {
-    g.shadowColor = T.shadow; g.shadowBlur = T.shadowBlur; g.shadowOffsetY = T.shadowBlur * 0.35;
+    g.shadowColor = T.shadow; g.shadowBlur = T.shadowBlur * S; g.shadowOffsetY = T.shadowBlur * 0.35 * S;
     rrect(0, 0, w, h, radius); g.fillStyle = T.panel; g.fill(); g.shadowColor = 'transparent';
   }
   rrect(0, 0, w, h, radius); g.clip();
@@ -267,6 +314,18 @@ function cursorPath(t, keys, clicks = []) {
 // Screen-studio camera: zoom z around focus point (fx, fy), placed at (sx, sy) on screen.
 // Use inside g.save()/g.restore(); drive z/fx/fy with track() so moves chain without cuts.
 function camera(z, fx, fy, sx = DW / 2, sy = DH / 2) { g.translate(sx, sy); g.scale(z, z); g.translate(-fx, -fy); }
+
+// One camera for the whole film, keyed by [time, zoom, focusX, focusY]. Each key starts one eased
+// move (glide by default); zoom is interpolated in log space so pushes feel even. Applies the
+// transform and returns { z, fx, fy }. Rules from the top films: one move per scene, never zoom
+// in and straight back out, never push into a tiny off-centre point (open it with portal/iris).
+function camPath(t, keys, { dur = 0.8, ease = GLIDE, sx = DW / 2, sy = DH / 2 } = {}) {
+  const z = Math.exp(keyed(t, keys.map((k) => [k[0], Math.log(k[1])]), { dur, ease }));
+  const fx = keyed(t, keys.map((k) => [k[0], k[2]]), { dur, ease });
+  const fy = keyed(t, keys.map((k) => [k[0], k[3]]), { dur, ease });
+  camera(z, fx, fy, sx, sy);
+  return { z, fx, fy };
+}
 
 // Depth of field: draw fn() blurred by px design units (background UI behind a sharp foreground).
 function blurred(px, fn) {
@@ -344,29 +403,88 @@ function plane3d(img, cx, cy, w, { rx = 0, ry = 0, rz = 0, persp = 2200, radius 
 }
 
 // ---------- transitions (no crossfades: objects become the next scene) ----------
-// Flood: a shape grows from (cx, cy) past every corner. Drive p 0->1 over ~0.3 s.
-function flood(cx, cy, p, { color = T.fg } = {}) {
+// Distance from (cx, cy) to the farthest frame corner, overscaled so a flood clears every corner.
+const farR = (cx, cy) => Math.hypot(Math.max(cx, DW - cx), Math.max(cy, DH - cy)) * 1.06;
+
+// Flood: a shape grows from (cx, cy) past every corner. Drive p 0->1 over about 0.3-0.35 s:
+// faster reads as a flash, slower lets half the frame change in one beat. area: ease by area.
+function flood(cx, cy, p, { color = T.fg, area = false } = {}) {
   if (p <= 0) return;
-  const R = Math.hypot(Math.max(cx, DW - cx), Math.max(cy, DH - cy)) * 1.06;
-  g.save(); alpha(1); g.fillStyle = color; g.beginPath(); g.arc(cx, cy, R * clamp(p, 0, 1.2), 0, Math.PI * 2); g.fill(); g.restore();
+  const R = farR(cx, cy) * (area ? byArea(p) : clamp(p, 0, 1.2));
+  g.save(); alpha(1); g.fillStyle = color; g.beginPath(); g.arc(cx, cy, R, 0, Math.PI * 2); g.fill(); g.restore();
 }
 // Contract: the flood colour covers everything except a growing hole at (cx, cy). p 0 -> 1 opens it.
-function contract(cx, cy, p, { color = T.fg } = {}) {
+function contract(cx, cy, p, { color = T.fg, area = false } = {}) {
   if (p >= 1) return;
-  const R = Math.hypot(Math.max(cx, DW - cx), Math.max(cy, DH - cy)) * 1.06;
+  const R = farR(cx, cy) * (area ? byArea(p) : Math.max(0, p));
   g.save(); alpha(1); g.fillStyle = color; g.beginPath(); g.rect(-DW, -DH, DW * 3, DH * 3);
-  g.arc(cx, cy, Math.max(0, R * p), 0, Math.PI * 2, true); g.fill('evenodd'); g.restore();
+  g.arc(cx, cy, Math.max(0, R), 0, Math.PI * 2, true); g.fill('evenodd'); g.restore();
 }
-// Iris: a six-blade aperture opens onto whatever drawInside() paints. p 0 -> 1.
-function iris(cx, cy, p, drawInside, { blades = 6, maxR } = {}) {
-  const R = (maxR ?? Math.hypot(DW, DH) * 0.62) * clamp(p, 0, 1.1);
-  if (R <= 0.5) return;
-  g.save(); g.beginPath();
-  for (let i = 0; i <= blades; i++) {
-    const an = (i / blades) * Math.PI * 2 + (1 - clamp(p)) * 1.1;
-    (i ? g.lineTo : g.moveTo).call(g, cx + Math.cos(an) * R, cy + Math.sin(an) * R);
+
+// Iris: real camera blades around a hexagonal aperture, opening onto drawInside(). p 0 = shut,
+// 1 = open. Each blade is two aperture vertices, both edge extensions out to the housing and the
+// SHORT arc between them, so the six blades tile the ring exactly. Eased by area (a closing iris
+// eased by radius jumps in its first frames). color: null skips the blades (a plain aperture).
+function iris(cx, cy, p, drawInside, { blades = 6, maxR, color = T.fg, twist = 0.9, seam } = {}) {
+  const R = maxR ?? farR(cx, cy);
+  const a = R * 1.16 * byArea(p);                          // aperture circumradius (hexagon corners)
+  const rot = -Math.PI / 2 + twist * (1 - clamp(p));
+  const V = Array.from({ length: blades }, (_, i) => {
+    const an = rot + (i / blades) * Math.PI * 2;
+    return [cx + Math.cos(an) * a, cy + Math.sin(an) * a];
+  });
+  if (a > 0.5) {
+    g.save(); g.beginPath(); V.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.closePath();
+    g.clip(); drawInside(); g.restore();
   }
-  g.clip(); drawInside(); g.restore();
+  if (!color || a >= R * 1.15) return;
+  const Rh = Math.max(R, a * 1.02);                        // housing; past R it is off-frame anyway
+  // P[j]: edge (j-1 -> j) extended past vertex j until it meets the housing circle
+  const P = V.map((v, j) => {
+    const u = V[(j - 1 + blades) % blades], dx = v[0] - u[0], dy = v[1] - u[1], L = Math.hypot(dx, dy) || 1;
+    const d = [dx / L, dy / L], w = [v[0] - cx, v[1] - cy];
+    const b = w[0] * d[0] + w[1] * d[1], s = -b + Math.sqrt(Math.max(0, b * b - (w[0] ** 2 + w[1] ** 2 - Rh * Rh)));
+    return [v[0] + d[0] * s, v[1] + d[1] * s];
+  });
+  const line = seam ?? mixColor(color, T.bg, 0.18);
+  g.save(); alpha(1);
+  for (let i = 0; i < blades; i++) {
+    const j = (i + 1) % blades, [p0, p1] = [P[j], P[i]];
+    const a0 = Math.atan2(p0[1] - cy, p0[0] - cx), a1 = Math.atan2(p1[1] - cy, p1[0] - cx);
+    let d = a1 - a0; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2;
+    g.beginPath(); g.moveTo(V[i][0], V[i][1]); g.lineTo(V[j][0], V[j][1]); g.lineTo(p0[0], p0[1]);
+    g.arc(cx, cy, Rh, a0, a1, d < 0); g.closePath();
+    g.fillStyle = color; g.fill();
+    g.strokeStyle = line; g.lineWidth = 2; g.stroke();
+  }
+  // the housing outside the circle, so the corners stay covered when maxR is smaller than the frame
+  g.beginPath(); g.rect(-DW, -DH, DW * 3, DH * 3); g.arc(cx, cy, Rh - 1, 0, Math.PI * 2, true);
+  g.fillStyle = color; g.fill('evenodd');
+  g.restore();
+}
+
+// Portal: a circular window onto another world (zero's "whole video inside the period").
+// Open the dot instead of zooming the camera into it: a zoom into an off-centre dot swings sideways.
+function portal(cx, cy, r, drawInside) {
+  if (r <= 0.3) return;
+  g.save(); g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.clip(); drawInside(); g.restore();
+}
+
+// One shape, many states. table: [[time, {x, y, w, h, r, fill, ...numbers}], ...] sorted by time.
+// Numbers glide, hex colours blend, and you get i (current state) and p (progress into it) so the
+// content can swap with swapAlpha(). Retiming the whole morph chain is one edit to the table.
+function states(t, table, { dur = 0.8, ease = GLIDE } = {}) {
+  const out = {}, first = table[0][1];
+  for (const k of Object.keys(first)) {
+    if (typeof first[k] === 'number') out[k] = keyed(t, table.map(([tt, s]) => [tt, s[k] ?? first[k]]), { dur, ease });
+    else if (/^#[0-9a-f]{6}$/i.test(first[k] ?? '')) {
+      const rgb = (c) => { const n = parseInt(c.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+      const ch = [0, 1, 2].map((c) => clamp(keyed(t, table.map(([tt, s]) => [tt, rgb(s[k] ?? first[k])[c]]), { dur, ease }), 0, 255));
+      out[k] = `rgb(${ch.map(Math.round).join(',')})`;
+    }
+  }
+  let i = 0; while (i + 1 < table.length && t >= table[i + 1][0]) i++;
+  return { ...out, i, p: ease(clamp((t - table[i][0]) / dur)), from: table[i][0], to: table[i + 1]?.[0] ?? Infinity };
 }
 // Shared-element morph between two boxes {x, y, w, h, r, fill}. p from a spring (may overshoot slightly).
 function morphBox(A, B, p) {
@@ -379,6 +497,106 @@ function mixColor(c1, c2, p) {
   const [a, b] = [h(c1), h(c2)];
   return `rgb(${a.map((v, i) => Math.round(lerp(v, b[i], p))).join(',')})`;
 }
+
+// ---------- layers, glass, goo ----------
+// Offscreen canvases the size of the frame, reused by name (a cache of elements, not of pixels:
+// every frame redraws them, so seek(t) stays a pure function of t).
+const _layers = {};
+function layerCtx(name) {
+  let L = _layers[name];
+  if (!L) { const cv = document.createElement('canvas'); L = _layers[name] = cv.getContext('2d'); }
+  if (L.canvas.width !== g.canvas.width || L.canvas.height !== g.canvas.height) { L.canvas.width = g.canvas.width; L.canvas.height = g.canvas.height; }
+  L.setTransform(1, 0, 0, 1, 0, 0); L.clearRect(0, 0, L.canvas.width, L.canvas.height); L.filter = 'none';
+  L.globalAlpha = 1; L.globalCompositeOperation = 'source-over';
+  return L;
+}
+// Run kit drawing code into another context. Needs `let g` (not const) in index.html.
+function withCtx(ctx, fn) {
+  const prev = g;
+  ctx.setTransform(prev.getTransform());
+  try { g = ctx; } catch (e) { throw new Error('withCtx/goo need `let g` in index.html, not `const g`'); }
+  try { fn(); } finally { g = prev; }
+}
+
+// Glass panel (iOS style): a pre-blurred copy of what's behind, clipped to the shape, then a tint
+// and a light rim. drawBehind() repaints the backdrop (photo, UI); no backdrop-filter, which
+// misreads in headless Chromium. lift grows the shadow with the panel.
+function glass(x, y, w, h, r, drawBehind, { blur = 18, tint = 'rgba(255,255,255,0.22)', rim = 0.95, edge = 0.1, lift = 1, shadow = true } = {}) {
+  g.save(); alpha(1);
+  if (shadow) {
+    g.shadowColor = T.shadow; g.shadowBlur = T.shadowBlur * 0.6 * lift * S; g.shadowOffsetY = T.shadowBlur * 0.2 * lift * S;
+    rrect(x, y, w, h, r); g.fillStyle = 'rgba(0,0,0,0.25)'; g.fill(); g.shadowColor = 'transparent';
+  }
+  g.save(); rrect(x, y, w, h, r); g.clip();
+  g.filter = `blur(${(blur * S).toFixed(2)}px)`; drawBehind(); g.filter = 'none';
+  alpha(1); g.fillStyle = tint; g.fillRect(x, y, w, h);
+  // thickness: the inside of the rim darkens a touch, the way a lens edge bends light away
+  rrect(x, y, w, h, r); g.strokeStyle = `rgba(0,0,0,${edge})`; g.lineWidth = Math.min(w, h) * 0.12; g.filter = `blur(${(6 * S).toFixed(2)}px)`; g.stroke(); g.filter = 'none';
+  const gr = g.createLinearGradient(x, y, x + w * 0.35, y + h);
+  gr.addColorStop(0, `rgba(255,255,255,${rim})`); gr.addColorStop(0.5, 'rgba(255,255,255,0.12)'); gr.addColorStop(1, `rgba(255,255,255,${rim * 0.6})`);
+  rrect(x + 1, y + 1, w - 2, h - 2, r); g.strokeStyle = gr; g.lineWidth = 2; g.stroke();
+  g.restore();
+  rrect(x - 0.5, y - 0.5, w + 1, h + 1, r); g.strokeStyle = 'rgba(0,0,0,0.12)'; g.lineWidth = 1; g.stroke();
+  g.restore();
+}
+
+// Goo: shapes drawn in fn() melt together when close and pinch apart when they separate (a pill
+// splitting into three, three merging into a Dynamic Island). Blur + alpha threshold, then the
+// sharp source is composited back on top so edges and fills stay crisp inside.
+function goo(fn, { blur = 14, cut = 0.5 } = {}) {
+  const A = layerCtx('gooA'), M = layerCtx('gooB');
+  const sa = SA;
+  withCtx(A, () => { SA = 1; g.globalAlpha = 1; fn(); });
+  SA = sa;
+  M.filter = `blur(${(blur * S).toFixed(2)}px)`; M.drawImage(A.canvas, 0, 0); M.filter = 'none';
+  const img = M.getImageData(0, 0, M.canvas.width, M.canvas.height), d = img.data, c0 = cut * 255;
+  for (let i = 3; i < d.length; i += 4) d[i] = Math.max(0, Math.min(255, (d[i] - c0) * 10 + 128));
+  M.putImageData(img, 0, 0);
+  M.globalCompositeOperation = 'source-atop'; M.drawImage(A.canvas, 0, 0); M.globalCompositeOperation = 'source-over';
+  g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = SA; g.drawImage(M.canvas, 0, 0); g.restore();
+}
+
+// ---------- real footage (screen recordings, B-roll) ----------
+// Prepare with `node prep-footage.mjs in.mov name` (JPEG frames + meta.json), declare
+// FOOTAGE = { name: 'assets/footage/name' } in index.html, then footage('name', localT, ...).
+// Frames load on demand; seekWith() redraws once they arrive, so every frame is exact.
+const _foot = { meta: {}, img: new Map(), pending: new Map() };
+function loadFootage(dirs) {
+  return Promise.all(Object.entries(dirs || {}).map(async ([name, dir]) => {
+    const meta = await new Promise((res, rej) => {
+      const x = new XMLHttpRequest(); x.open('GET', `${dir}/meta.json`);
+      x.onload = () => res(JSON.parse(x.responseText)); x.onerror = () => rej(new Error('missing footage ' + dir)); x.send();
+    });
+    _foot.meta[name] = { ...meta, dir };
+  }));
+}
+function footageFrame(name, lt, { loop = false, rate = 1 } = {}) {
+  const m = _foot.meta[name];
+  if (!m) throw new Error(`footage "${name}" not declared in FOOTAGE`);
+  let i = Math.floor(Math.max(0, lt * rate) * m.fps + 1e-6);
+  i = loop ? i % m.frames : Math.min(m.frames - 1, i);
+  const src = `${m.dir}/${String(i + 1).padStart(5, '0')}.jpg`;
+  const im = _foot.img.get(src);
+  if (im) return im;
+  if (!_foot.pending.has(src)) _foot.pending.set(src, new Promise((res) => {
+    const x = new Image(); x.onload = () => { _foot.img.set(src, x); _foot.pending.delete(src); res(); };
+    x.onerror = () => { _foot.pending.delete(src); res(); }; x.src = src;
+  }));
+  return null;
+}
+// Draws footage like shot(): w wide at (x, y), rounded, optional sub-rect src. Returns height.
+function footage(name, lt, x, y, w, opts = {}) {
+  const m = _foot.meta[name], im = footageFrame(name, lt, opts);
+  if (!im) return w * (m.h / m.w);
+  if (_foot.img.size > 240) for (const k of [..._foot.img.keys()].slice(0, 120)) _foot.img.delete(k);
+  return shot(im, x, y, w, opts);
+}
+// window.seek = seekWith(draw): draws, waits for any footage frames it asked for, draws again.
+const seekWith = (draw) => async (t) => {
+  draw(t);
+  for (let k = 0; k < 4 && _foot.pending.size; k++) { await Promise.all(_foot.pending.values()); draw(t); }
+  return true;
+};
 
 // ---------- optional character ----------
 // Box mascot with fixed proportions. squash -1..1 (negative = stretch), look = [-1..1, -1..1].

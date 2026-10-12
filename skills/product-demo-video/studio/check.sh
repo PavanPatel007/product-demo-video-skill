@@ -15,4 +15,5 @@ ffmpeg -y -loglevel error -ss "$s" -i "$v" -vf "fps=20,scale=320:-1,tile=12x1" -
 ffmpeg -y -loglevel error -i "$v" -vf "fps=1,scale=360:-1,tile=5x3" -frames:v 1 "$d/phone.png"
 ffmpeg -y -loglevel error -ss "$(awk -v d="$dur" 'BEGIN { print d / 3 }')" -i "$v" -frames:v 1 "$d/poster.png"
 echo "wrote $d/{contact,strip,phone,poster}.png (duration ${dur}s)"
-node "$here/motion-audit.mjs" "$v" --out "$d" $loop || true
+cues=""; [ -f sfx_cues.json ] && cues="--cues sfx_cues.json"
+node "$here/motion-audit.mjs" "$v" --out "$d" $loop $cues || true

@@ -1,6 +1,8 @@
 // node sfx.mjs cues.json out/sfx.wav
 // cues: [{"t":0.5,"type":"click"}, {"t":2.0,"file":"sfx/whoosh.wav","gain":0.7}, ...]
-// Synthesized types: click, pop, thump, whoosh, chime, tick, swish, riser.
+// Synthesized types: click, key, pop, thump, whoosh, chime, tick, swish, riser. Repeats of the
+// same type are detuned a few percent (seeded) so a run of clicks or keys doesn't sound looped;
+// "pitch": 1.2 overrides it. Generate key cues from the kit's typeTimes() so they match the text.
 // File cues (e.g. Mixkit SFX you're licensed to use) are placed so their loudest
 // sample lands exactly on t; add "align":"start" to place the file's start instead.
 import { execFileSync } from 'node:child_process';
@@ -10,6 +12,7 @@ const SR = 48000, cues = JSON.parse(readFileSync(process.argv[2], 'utf8'));
 let s = 42; const noise = () => (s = (s * 1664525 + 1013904223) >>> 0) / 2147483648 - 1;
 const VOICES = {
   click: [0.05, (t) => Math.sin(2 * Math.PI * 1800 * t) * Math.exp(-t * 90) * 0.5],
+  key: [0.045, (t) => (noise() * 0.6 + Math.sin(2 * Math.PI * 2400 * t) * 0.4) * Math.exp(-t * 120) * 0.28],
   tick: [0.03, (t) => Math.sin(2 * Math.PI * 3200 * t) * Math.exp(-t * 160) * 0.35],
   pop: [0.15, (t) => Math.sin(2 * Math.PI * (600 + 900 * t) * t) * Math.exp(-t * 30) * 0.4],
   thump: [0.5, (t) => Math.sin(2 * Math.PI * (90 - 60 * t) * t) * Math.exp(-t * 9) * 0.9],
@@ -32,6 +35,7 @@ function load(file) {
 
 const len = (c) => (c.file ? load(c.file).pcm.length / SR : VOICES[c.type]?.[0] ?? 0);
 const buf = new Float32Array(Math.ceil((Math.max(...cues.map((c) => c.t + len(c))) + 1) * SR));
+const seen = {};
 for (const c of cues) {
   const gain = c.gain ?? 1;
   if (c.file) {
@@ -42,7 +46,9 @@ for (const c of cues) {
   }
   if (!VOICES[c.type]) throw new Error(`unknown sfx type "${c.type}" (use ${Object.keys(VOICES).join(', ')} or "file")`);
   const [dur, fn] = VOICES[c.type], start = Math.floor(c.t * SR);
-  for (let i = 0; i < dur * SR && start + i < buf.length; i++) buf[start + i] += fn(i / SR) * gain;
+  const n = (seen[c.type] = (seen[c.type] ?? 0) + 1);
+  const rate = c.pitch ?? 1 + ((((n * 2654435761) >>> 0) % 1000) / 1000 - 0.5) * 0.08;
+  for (let i = 0; i < (dur / rate) * SR && start + i < buf.length; i++) buf[start + i] += fn((i / SR) * rate) * gain;
 }
 
 const n = buf.length, b = Buffer.alloc(44 + n * 2);      // 16-bit mono WAV

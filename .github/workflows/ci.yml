@@ -1,0 +1,30 @@
+name: smoke test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: System tools
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg espeak-ng
+      - name: Chromium and its system libraries
+        run: npx -y playwright@1 install --with-deps chromium
+      - name: Manifests are valid JSON
+        run: for f in .claude-plugin/*.json .cursor-plugin/*.json .codex-plugin/*.json .agents/plugins/*.json gemini-extension.json; do node -e "JSON.parse(require('fs').readFileSync('$f','utf8'))" || exit 1; done
+      - name: Versions match
+        run: |
+          v=$(node -p "require('./.claude-plugin/plugin.json').version")
+          for f in .claude-plugin/marketplace.json .cursor-plugin/plugin.json .codex-plugin/plugin.json gemini-extension.json; do
+            grep -q "\"version\": \"$v\"" "$f" || { echo "$f is not at $v"; exit 1; }
+          done
+      - name: Smoke test
+        run: ./tests/smoke.sh

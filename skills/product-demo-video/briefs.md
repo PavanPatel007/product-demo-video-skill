@@ -47,6 +47,89 @@ events on B(n). Every visible event gets an SFX in sfx_cues.json. Render stills 
 </build>
 ```
 
+## F. Agent / chat product (ask → think → drop → result → act)
+
+Adapted from ultima's food-craving film (research.md). Use it for any product where the user
+types a request and the product does the work: assistants, agents, search, copilots.
+
+```
+<direction>
+A [DURATION]-second launch film for [PRODUCT], one continuous take. Each scene grows from the
+last: text rises from a mask line, buttons expand into pages, color floods from one object
+before shrinking into another. The camera makes one glide per scene (camPath, log-space zoom)
+and never zooms in and out back to back or reverses mid-move.
+[BRAND BG] canvas, [BRAND FG] UI, accent [ACCENT]. Real [RESULT TYPE] from ./assets on the
+result cards. [UI FONT] for UI, [DISPLAY FONT] for the end card.
+Banned: crossfades, blur-ins, 3D flips, particles, glows, reversing camera, holds over 1 s.
+</direction>
+
+<structure>
+[BPM] BPM, [BEATS] beats. Start the song [N] beats before its drop.
+Ask (beats 0-6): push slowly into the real composer, about 3×. Type "[THE USER'S REAL REQUEST]"
+on fixed lines (typeOn with \n) with a natural keystroke rhythm, one key sound per letter.
+Send (beat 6): press send; an accent ripple turns the message into a chat bubble. Pull back
+once to reveal the product around it.
+Think (beats 6-12): the send button becomes [THINKING OBJECT from the product], which does
+something on every beat under the product's real working label "[LABEL]".
+Drop (beat 12, on the song's drop): an accent flood from the thinking object clears the
+farthest corner in about 0.35 s; [RESULT CARDS] burst in; the strip slides and lands on
+"[BEST RESULT]", which lifts with a "[BADGE]" pill.
+Result: the flood contracts back into the bubble, carrying its words, while the chosen card
+flies into its slot. The product's reply rises in: "[REAL REPLY]".
+Act: two pills, "[PRIMARY ACTION]" and "[SECONDARY]". The cursor clicks the primary →
+spinner → "✓ [DONE STATE]".
+Outro: the button expands into the page, staying pill-shaped as it reaches the edges, while the
+camera pushes into it. Its label grows to headline size and slides away. "[LINE 1]" / "[LINE 2]"
+word by word. The accent dot travels and becomes the period of the wordmark.
+</structure>
+
+<gotchas>
+Every handoff is a shared element (the flood carries the bubble's words, the button carries its
+label). Draw order is layer order: cards never float above the flood. Keep typed text on fixed
+lines. Declare every variable before the first seek().
+</gotchas>
+```
+
+## G. Inside the period (looping, square or 16:9)
+
+Adapted from zero's nightshift template (research.md). The whole film happens inside the
+wordmark's period; it suits products that work while the user is away (automation, agents,
+monitoring, scheduling).
+
+```
+<direction>
+A [DURATION]-second looping launch film. Outside the period: [OUTSIDE WORLD, e.g. the product's
+real site or a daytime photo] behind a black "[product]." wordmark. Inside the period: [INSIDE
+WORLD] under glass panels (glass(): blurred backdrop, tint, inner edge, rim). Nothing cuts:
+shapes morph, dots fly, colors change under floods. Every morph glides 0.8 s on
+cubic-bezier(.45,0,.15,1) (glide / keyed / states), and the camera rides the same curve.
+Banned: flat or gradient backgrounds made in code, camera zooms into tiny points, hard cuts,
+crossfades, bouncy springs, particles, glows, holds over 1 s, cropped type.
+</direction>
+
+<structure>
+Open: the letters squeeze into the period (squeeze, at: 'dot') while it glides to the middle.
+The period opens like an iris (or portal) onto the inside world; "[HOOK LINE 1]" then
+"[HOOK LINE 2]" roll through one mask line.
+Ask: a glass "Ask [product]" pill springs in, the cursor clicks it, it glides into an input
+and "[THE ONE JOB]" types out.
+Work: send shrinks the input to a dot that ripples into [A GRID / LIST of the real objects];
+a scan sweeps it and a counter counts [REAL NUMBER] (countUp reads frame time).
+Results: the working shape turns black and goo-splits (goo) into [3 REAL RESULTS] pills;
+checks pop on beats.
+Proof: [REAL SCREEN from ./assets] with one hover and one number that counts.
+Out: a flood from the proof becomes "[CTA] →", the cursor clicks, the button shrinks into a
+dot, the scene closes into it like an iris, and the letters slide back out of the period.
+Last frame = first frame.
+</structure>
+
+<build>
+One morph table (states()) of beat times for the shape that carries the film, so retiming is
+one edit. Render the inside world with layerCtx/withCtx and reveal it through the period with
+portal() or iris(); never zoom the camera into the dot. Ease the closing iris by area.
+</build>
+```
+
 ## A. Kinetic launch
 
 ```
@@ -169,17 +252,22 @@ properly. Be a harsh motion director, not a proud author.
 
 Score 1-10: hook in first 2s · readability at phone size · motion quality (springs, no dead
 frames) · continuity (each scene made out of the last) · variety (a change every beat) ·
-composition · brand accuracy · sound sync.
+composition · depth (camera, plane3d tilt, focus card over soft UI, shadows that grow with
+height) · polish (no ghosts, no smears, no cropped type) · brand accuracy · sound sync.
 
-After a full render, read the motion audit in out/check/motion.txt first: every hold over 1 s
-and every single-frame pop that isn't a deliberate downbeat cut is an automatic problem.
+After a full render, read the motion audit in out/check/motion.txt first: every hold over 1 s,
+every single-frame pop that isn't a deliberate downbeat cut, every silent visible event and
+every blind sound is an automatic problem.
 
 List the 3 biggest problems with timestamps. Hunt for: a crossfade or blur-in where a shape
 should transform, a flood that doesn't clear the corners, text overlapping during swaps,
 descenders peeking under a mask line, anything sliding instead of springing, a small centered
 screenshot instead of UI that fills and bleeds off the frame, a camera that doesn't move toward
 the action, corner labels and frame borders, blurry scaled text, a dead beat, a stutter at the
-loop seam, invented UI that is not in ./assets.
+loop seam, invented UI that is not in ./assets, a camera that reverses or zooms in then out,
+a zoom into a tiny dot, smeared counters or typed text, ghost copies on fast moves (open the
+fastest frame at 1:1), cards above a flood, type cropped by the frame, typed text that wraps,
+a handoff that carries nothing across, a sound with nothing moving or a move with no sound.
 
 Fix them, re-render the affected stills, append scores + fixes to docs/review_log.md.
 ```

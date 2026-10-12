@@ -12,7 +12,7 @@ html,body{margin:0;background:#000}canvas{display:block;max-width:100vw;max-heig
 const Q = new URLSearchParams(location.search);
 const W = +Q.get('w') || 1920, H = +Q.get('h') || 1080, DUR = 11;
 const c = document.getElementById('c'); c.width = W; c.height = H;
-const g = c.getContext('2d');
+let g = c.getContext('2d');   // let: goo() and withCtx() redirect kit drawing into offscreen layers
 // Design space: the short side is always 1080 units, so one layout scales to any resolution.
 const S = Math.min(W, H) / 1080, DW = W / S, DH = H / S;
 const PORTRAIT = H > W * 1.1, SQUARE = !PORTRAIT && W < H * 1.1, WIDE = !PORTRAIT && !SQUARE;
@@ -45,8 +45,11 @@ const ASSETS = {
   // logo: 'assets/logo.svg',
   // dash: 'assets/screens/app_dashboard.png',
 };
+// Real screen recordings: node prep-footage.mjs in.mov demo -> FOOTAGE = { demo: 'assets/footage/demo' }
+const FOOTAGE = {};
 const IMG = {};
 window.ready = Promise.all([
+  loadFootage(FOOTAGE),
   ...FONTS.map((f) => document.fonts.load(f)),
   ...Object.entries(ASSETS).map(([k, src]) => new Promise((res, rej) => {
     const i = new Image();
@@ -75,16 +78,40 @@ function skeletonUI() {
 }
 
 // ---------- shots (one per row of docs/shotlist.md; times on the beat grid) ----------
-const P = { x: DW / 2, y: DH / 2 };                         // where the opening pill sits
+const NAME = 'Product';                                     // the wordmark; its period is the accent dot
+const P = { x: DW / 2, y: DH / 2 };                         // the dot sits here: open, pill, and the end card
+const MARK = PORTRAIT ? 150 : 200;                          // wordmark size; its dot radius is MARK * 0.11
 const PILL = { x: P.x - 300, y: P.y - 75, w: 600, h: 150, r: 75 };
-const DOT = { x: P.x - 22, y: P.y - 22, w: 44, h: 44, r: 22 };
+const DOT = { x: P.x - MARK * 0.11, y: P.y - MARK * 0.11, w: MARK * 0.22, h: MARK * 0.22, r: MARK * 0.11 };
 const TOG = WIDE ? { x: DW * 0.7, y: DH * 0.56 } : { x: DW * 0.5, y: DH * 0.7 };   // toggle the cursor flips
 
+// Sound on the picture's timeline: `node render.mjs --cues sfx_cues.json` writes these, so retiming a
+// shot retimes its sounds. Every visible event gets one.
+const CUES = [
+  { t: 0.1, type: 'swish' },                                // wordmark squeezes into its period
+  { t: B(1), type: 'pop' },                                 // dot -> pill
+  { t: B(3.5), type: 'click' }, { t: B(4), type: 'whoosh' }, // click, flood
+  { t: B(5), type: 'thump' },                               // the flood opens onto the product
+  { t: B(8), type: 'pop' }, { t: B(8.4), type: 'tick' },    // stat card, count-up
+  { t: B(9.5), type: 'swish' },                             // headline leaves
+  { t: B(10.5), type: 'pop' }, { t: B(12), type: 'click' }, // focus card, toggle
+  { t: B(13), type: 'chime' },                              // result
+  { t: B(14.5), type: 'whoosh' }, { t: B(15.5), type: 'thump' }, // collapse, dot lands as the period
+  { t: B(16), type: 'swish' },                              // letters spring out of the dot
+  { t: B(18), type: 'pop' },                                // CTA pill
+  ...typeTimes('product.com', { cps: 22 }).map((k) => ({ t: B(19) + k, type: 'key', gain: 0.6 })),
+];
+window.CUES = CUES;
+window.CUTS = [];                                           // hard-cut times: motion blur never blends across them
+
 const SCENES = [
-  { from: 0, to: B(5.5), draw(t) {                          // open: dot -> pill -> click -> flood
+  { from: 0, to: B(1.2), draw(t) {                          // open: the wordmark squeezes into its own period
+      squeeze(NAME, P.x, P.y, MARK, glide(t - 0.06, 0.44), { at: 'dot' });
+  }},
+  { from: B(1), to: B(5.5), draw(t) {                       // dot -> pill -> click -> flood
       const m = morphBox({ ...DOT, fill: T.accent }, { ...PILL, fill: T.fg }, sp(t - B(1), 'snappy'));
-      const pop = clamp(sp(t, 'playful'), 0, 1.2), press = clamp(1 - Math.abs(t - B(3.5)) / 0.12);
-      g.save(); g.translate(P.x, P.y); g.scale(pop * (1 - 0.05 * press), pop * (1 - 0.05 * press)); g.translate(-P.x, -P.y);
+      const press = clamp(1 - Math.abs(t - B(3.5)) / 0.12);
+      g.save(); g.translate(P.x, P.y); g.scale(1 - 0.05 * press, 1 - 0.05 * press); g.translate(-P.x, -P.y);
       alpha(1); rrect(m.x, m.y, m.w, m.h, m.r); g.fillStyle = m.fill; g.fill();
       rrect(m.x, m.y, m.w, m.h, m.r); g.clip();
       maskRise('Get started', P.x, P.y + 19, t - B(1.6), { size: 54, weight: 600, color: T.bg, align: 'center', font: fontU(54, 600) });
@@ -102,9 +129,8 @@ const SCENES = [
       const k = 1 - sp(t - B(14.5), 'base');
       g.save(); g.translate(TOG.x, TOG.y); g.scale(Math.max(0.001, k), Math.max(0.001, k)); g.translate(-TOG.x, -TOG.y);
 
-      const z = track(t, [[B(5), 0.94], [B(6), 1], [B(10), 1.55]], 120, 24);
-      const fx = track(t, [[B(5), DW / 2], [B(10), TOG.x]], 120, 24), fy = track(t, [[B(5), DH / 2], [B(10), TOG.y]], 120, 24);
-      g.save(); camera(z, fx, fy);
+      // one camera, one push per scene: settle, then glide toward what the cursor will touch
+      g.save(); camPath(t, [[B(5), 0.94, DW / 2, DH / 2], [B(5.5), 1, DW / 2, DH / 2], [B(10), 1.55, TOG.x, TOG.y]], { dur: 1 });
       const ui = WIDE ? { x: DW * 0.71, y: DH * 0.55, w: 1180 } : { x: DW * 0.52, y: DH * 0.64, w: DW * 1.05 };
       const rise = sp(lt - 0.1, 'heavy');
       plane3d(IMG.dash, ui.x, ui.y + (1 - rise) * DH * 0.6, ui.w, {
@@ -151,18 +177,16 @@ const SCENES = [
       contract(P.x, P.y, sp(lt, 'base') * 1.05, { color: T.fg });   // the flood opens onto this scene
       if (k < 0.999) { alpha(1); g.fillStyle = T.accent; g.beginPath(); g.arc(TOG.x, TOG.y, 16 * (1 - k) + 8, 0, Math.PI * 2); g.fill(); }
   }},
-  { from: B(15), to: DUR, draw(t) {                          // end card: dot travels into the wordmark's period
-      const size = PORTRAIT ? 150 : 170, cy = DH / 2 - (PORTRAIT ? 80 : 60);
-      g.save(); g.font = fontD(size, 800); g.letterSpacing = `${size * T.track}px`;
-      const ww = g.measureText('Product').width; g.restore();
-      const dotX = DW / 2 - size * 0.12 + ww / 2 + size * 0.17, dotY = cy + size * 0.35 - size * 0.11;
-      maskRise('Product', DW / 2 - size * 0.12, cy + size * 0.35, t - B(16), { size, weight: 800, align: 'center', stagger: 0.035 });
-      const dx = track(t, [[B(15), TOG.x], [B(15.5), dotX]], 170, 26), dy = track(t, [[B(15), TOG.y], [B(15.5), dotY]], 170, 26);
-      const dr = track(t, [[B(15), 24], [B(16.5), size * 0.11]], 170, 26);
-      alpha(1); g.fillStyle = T.accent; g.beginPath(); g.arc(dx, dy, dr, 0, Math.PI * 2); g.fill();
-      const b = sp(t - B(18), 'snappy');
-      if (b > 0) pill('Try it free', DW / 2, cy + size + 40, b, { size: 32, h: 84, padX: 52, fill: T.fg, color: T.bg });
-      typeOn('product.com', DW / 2 - 92, cy + size + 150, t - B(19), { size: 28, color: T.muted, font: fontM(28) });
+  { from: B(15), to: DUR, draw(t) {                          // end card: the dot flies home and the letters spring back out
+      const dr = MARK * 0.11;
+      const dx = track(t, [[B(15), TOG.x], [B(15.5), P.x]], 170, 26), dy = track(t, [[B(15), TOG.y], [B(15.5), P.y]], 170, 26);
+      if (t < B(16)) { alpha(1); g.fillStyle = T.accent; g.beginPath(); g.arc(dx, dy, track(t, [[B(15), 24], [B(15.8), dr]], 170, 26), 0, Math.PI * 2); g.fill(); }
+      else squeeze(NAME, P.x, P.y, MARK, 1 - glide(t - B(16), 0.6), { at: 'dot' });   // same lockup as frame 0
+      g.save(); g.font = fontD(MARK, 800); g.letterSpacing = `${MARK * T.track}px`;
+      const mid = P.x - dr - g.measureText(NAME).width / 2; g.restore();     // centre of the lockup
+      const b = sp(t - B(18), 'snappy'), below = P.y + dr + (PORTRAIT ? 120 : 110);
+      if (b > 0) pill('Try it free', mid, below, b, { size: 32, h: 84, padX: 52, fill: T.fg, color: T.bg });
+      typeOn('product.com', mid - 92, below + 110, t - B(19), { size: 28, color: T.muted, font: fontM(28) });
       if (Q.has('mascot')) {
         const hop = t - B(20), y = DH / 2 + (PORTRAIT ? 420 : 300) - 140 * Math.max(0, Math.sin(Math.PI * clamp(hop / 0.5)));
         const land = clamp(1 - Math.abs(hop - 0.5) / 0.12);
@@ -189,7 +213,7 @@ function draw(t) {
   }
 }
 window.DUR = DUR;
-window.seek = (t) => { draw(t); return true; };
+window.seek = seekWith(draw);   // async: waits for any footage frames, then repaints
 
 // Live preview in a normal browser; off during headless render.
 if (!navigator.webdriver) {

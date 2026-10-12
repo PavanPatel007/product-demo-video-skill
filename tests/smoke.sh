@@ -57,6 +57,23 @@ d=$(ffprobe -v error -show_entries format=duration -of csv=p=0 out/silent.mp4)
 awk -v d="$d" 'BEGIN { exit !(d > 10.8 && d < 11.2) }' || fail "silent.mp4 is ${d}s, expected 11"
 ok "out/silent.mp4 (${d}s)"
 
+step "determinism, cues, adaptive motion blur"
+node render.mjs --w 960 --h 540 --verify | grep -q "deterministic" || fail "--verify: frames differ by seek order"
+node render.mjs --cues out/cues.json >/dev/null
+c=$(node -e 'const c=require("./out/cues.json"); process.stdout.write(String(c.length))')
+[ "$c" -ge 20 ] || fail "--cues exported $c cues from window.CUES, expected 20+"
+r=$(node render.mjs --w 960 --h 540 --from 1.9 --to 2.5 --out out/blur.mp4)
+echo "$r" | grep -q "samples/frame" || { echo "$r"; fail "adaptive render printed no sample stats"; }
+[ -s out/blur.mp4 ] || fail "out/blur.mp4 missing"
+ok "--verify deterministic; $c cues exported; --sub auto on the flood ($(echo "$r" | grep -o '[0-9.]* samples/frame'))"
+
+step "footage"
+ffmpeg -y -loglevel error -f lavfi -i testsrc2=s=320x180:r=30:d=1 clip.mp4
+node prep-footage.mjs clip.mp4 wall --fps 30 --w 320 >/dev/null
+n=$(ls assets/footage/wall/*.jpg | wc -l | tr -d ' ')
+[ "$n" -ge 29 ] && [ -s assets/footage/wall/meta.json ] || fail "prep-footage wrote $n frames"
+ok "prep-footage.mjs → $n JPEG frames + meta.json"
+
 step "sfx"
 mkdir -p sfx && ffmpeg -y -loglevel error -f lavfi -i "sine=f=900:d=0.4" -af "afade=t=in:d=0.15,afade=t=out:st=0.2:d=0.2" sfx/tone.wav
 echo '[{"t":0.2,"type":"whoosh"},{"t":1.75,"type":"click"},{"t":2.0,"type":"swish"},{"t":4.0,"type":"tick"},{"t":6.0,"file":"sfx/tone.wav","gain":0.7},{"t":7.25,"type":"riser"},{"t":8.0,"type":"pop"},{"t":9.0,"type":"chime","gain":0.6}]' >sfx_cues.json

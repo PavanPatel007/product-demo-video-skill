@@ -4,6 +4,7 @@
 //   pops   : one frame changes far more than its neighbours (hard cut, an element jumping, or
 //            footage at half the frame rate, which shows as pops on alternate frames)
 //   seam   : with --loop, how different the last frame is from the first
+//   sync   : with --cues, visible events with no sound and sounds with nothing moving
 // Prints a per-second motion bar and writes <out>/motion.txt + motion.json.
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
@@ -18,7 +19,28 @@ const probe = (file) => {
   return { fps: a / (b || 1), dur: Number(dur) };
 };
 
-export function audit(file, { maxHold = 1, endHold = 2.5, loop = false, outDir = 'out/check', quiet = 0.08, popMin = 6 } = {}) {
+// Sound sync: an onset is a frame where motion jumps well above the frames just before it (a click
+// landing, a pop, a flood starting). Each should have a cue within `win` seconds, and each cue
+// should have visible change around it. Advisory: it lists times to look at, it doesn't fail.
+function soundSync(d, fps, cues, { win = 0.12 } = {}) {
+  const onsets = [];
+  for (let i = 6; i < d.length; i++) {
+    const before = d.slice(i - 6, i).reduce((a, b) => a + b, 0) / 6;
+    if (d[i] > 0.3 && d[i] > before * 3 + 0.15) {
+      const t = (i + 1) / fps;
+      if (!onsets.length || t - onsets[onsets.length - 1] > 0.2) onsets.push(t);
+    }
+  }
+  const ts = cues.map((c) => c.t);
+  const silent = onsets.filter((t) => !ts.some((c) => Math.abs(c - t) <= win));
+  const blind = ts.filter((c) => {
+    const i0 = Math.max(0, Math.floor((c - 0.15) * fps)), i1 = Math.min(d.length, Math.ceil((c + 0.15) * fps));
+    return Math.max(0, ...d.slice(i0, i1)) < 0.005;     // not a single pixel changed (a typed key still counts)
+  });
+  return { onsets: onsets.length, silent: silent.map((t) => +t.toFixed(2)), blind: blind.map((t) => +t.toFixed(2)) };
+}
+
+export function audit(file, { maxHold = 1, endHold = 2.5, loop = false, outDir = 'out/check', quiet = 0.08, popMin = 6, cues = null } = {}) {
   mkdirSync(outDir, { recursive: true });
   const { fps, dur } = probe(file);
   const tmp = join(outDir, '.diff.txt');
@@ -63,7 +85,8 @@ export function audit(file, { maxHold = 1, endHold = 2.5, loop = false, outDir =
     for (const f of [a, b, m]) rmSync(f, { force: true });
   }
 
-  const report = { file, fps, dur: +dur.toFixed(2), holds, pops, deadSeconds: dead, energy: energy.map((e) => +e.toFixed(2)), seam };
+  const sync = cues ? soundSync(d, fps, cues) : null;
+  const report = { file, fps, dur: +dur.toFixed(2), holds, pops, deadSeconds: dead, energy: energy.map((e) => +e.toFixed(2)), seam, sync };
   const lines = [
     `motion audit: ${file} (${dur.toFixed(1)} s, ${Math.round(fps)} fps)`,
     `motion per second: ${bar}`,
@@ -73,6 +96,11 @@ export function audit(file, { maxHold = 1, endHold = 2.5, loop = false, outDir =
     ...pops.slice(0, 20).map((p) => `  ${p.t}s  ${p.diff}% of pixels jump in one frame`),
     dead.length ? `dead seconds (almost no motion): ${dead.join(', ')}` : 'dead seconds: none',
     ...(seam === null ? [] : [`loop seam: ${seam.toFixed(2)}% of pixels differ ${seam < 1 ? '(seamless)' : '(VISIBLE JUMP: make the last frame equal the first)'}`]),
+    ...(sync === null ? [] : [
+      `sound sync: ${sync.onsets} visible events, ${cues.length} cues`,
+      sync.silent.length ? `  events with no sound within 0.12 s: ${sync.silent.slice(0, 20).join(', ')}` : '  every visible event has a sound',
+      sync.blind.length ? `  sounds with nothing moving: ${sync.blind.slice(0, 20).join(', ')}` : '  every sound has something moving',
+    ]),
   ];
   writeFileSync(join(outDir, 'motion.txt'), lines.join('\n') + '\n');
   writeFileSync(join(outDir, 'motion.json'), JSON.stringify(report, null, 1));
@@ -82,9 +110,10 @@ export function audit(file, { maxHold = 1, endHold = 2.5, loop = false, outDir =
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   const a = (k, d) => { const i = process.argv.indexOf('--' + k); return i > 0 ? process.argv[i + 1] : d; };
   const file = process.argv[2];
-  if (!file || file.startsWith('--')) { console.log('usage: node motion-audit.mjs <video.mp4> [--max-hold 1] [--end-hold 2.5] [--loop] [--out dir]'); process.exit(1); }
+  if (!file || file.startsWith('--')) { console.log('usage: node motion-audit.mjs <video.mp4> [--max-hold 1] [--end-hold 2.5] [--loop] [--cues sfx_cues.json] [--out dir]'); process.exit(1); }
+  const cues = a('cues') ? JSON.parse(readFileSync(a('cues'), 'utf8')) : null;
   const { report, text } = audit(file, { maxHold: Number(a('max-hold', 1)), endHold: Number(a('end-hold', 2.5)),
-    loop: process.argv.includes('--loop'), outDir: a('out', 'out/check') });
+    loop: process.argv.includes('--loop'), outDir: a('out', 'out/check'), cues });
   console.log(text);
   process.exitCode = report.holds.length || (report.seam !== null && report.seam >= 1) ? 3 : 0;
 }

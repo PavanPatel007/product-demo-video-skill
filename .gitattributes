@@ -1,0 +1,11 @@
+# Shell scripts must keep LF endings or they break when cloned on Windows
+*.sh text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.js text eol=lf
+*.mjs text eol=lf
+*.py text eol=lf
+*.html text eol=lf
+*.png binary
+*.jpg binary
+*.mp4 binary

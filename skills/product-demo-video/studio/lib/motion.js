@@ -45,6 +45,40 @@
 
   const loopT = (t, dur) => ((t % dur) + dur) % dur;
 
+  // CSS-style cubic-bezier easing, solved in closed form per call (Newton + bisection fallback).
+  function bezier(x1, y1, x2, y2) {
+    const cx = 3 * x1, bx = 3 * (x2 - x1) - cx, ax = 1 - cx - bx;
+    const cy = 3 * y1, by = 3 * (y2 - y1) - cy, ay = 1 - cy - by;
+    const X = (s) => ((ax * s + bx) * s + cx) * s, Y = (s) => ((ay * s + by) * s + cy) * s;
+    const dX = (s) => (3 * ax * s + 2 * bx) * s + cx;
+    return (p) => {
+      if (p <= 0) return 0;
+      if (p >= 1) return 1;
+      let s = p;
+      for (let i = 0; i < 8; i++) { const e = X(s) - p, d = dX(s); if (Math.abs(e) < 1e-6) return Y(s); if (Math.abs(d) < 1e-6) break; s -= e / d; }
+      let lo = 0, hi = 1; s = p;
+      for (let i = 0; i < 30; i++) { const x = X(s); if (Math.abs(x - p) < 1e-6) break; if (x < p) lo = s; else hi = s; s = (lo + hi) / 2; }
+      return Y(s);
+    };
+  }
+  // The glide every morph and camera move rides in zero's loop films: no overshoot, long settle.
+  const GLIDE = bezier(0.45, 0, 0.15, 1);
+  const glide = (t, dur = 0.8) => GLIDE(clamp(t / dur));
+
+  // Piecewise value from a table of [time, value] keys, each segment eased over `dur` seconds
+  // starting at its key. Retiming a whole sequence is one edit to the table.
+  function keyed(t, keys, { dur = 0.8, ease = GLIDE } = {}) {
+    let v = keys[0][1];
+    for (let i = 1; i < keys.length; i++) v += (keys[i][1] - keys[i - 1][1]) * ease(clamp((t - keys[i][0]) / dur));
+    return v;
+  }
+
+  // Zoom interpolated in log space, so 1x -> 4x feels as even as 4x -> 16x.
+  const logLerp = (a, b, p) => Math.exp(lerp(Math.log(a), Math.log(b), p));
+
+  // A circle that opens or closes evenly by area: radius from an area fraction.
+  const byArea = (p) => Math.sqrt(clamp(p, 0, 1.2));
+
   // Seeded noise (mulberry32). Never Math.random.
   function rng(seed) {
     return () => {
@@ -55,5 +89,11 @@
     };
   }
 
-  Object.assign(root, { clamp, lerp, spring, SPRINGS, sp, track, indicator, swapAlpha, loopT, rng });
+  // Frame time. render.mjs sets __t (the subframe being drawn) and __ft (the frame it belongs to)
+  // before every seek. Text that changes in steps (counters, typing, scramble) reads frameLocal()
+  // so its glyphs stay identical across a frame's subframes instead of smearing in the blur.
+  const frameLocal = (t) => (root.__ft == null || root.__t == null ? t : t - (root.__t - root.__ft));
+
+  Object.assign(root, { clamp, lerp, spring, SPRINGS, sp, track, indicator, swapAlpha, loopT, rng,
+    bezier, GLIDE, glide, keyed, logLerp, byArea, frameLocal });
 })(globalThis);
