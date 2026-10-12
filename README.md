@@ -64,8 +64,9 @@ desktop app's Code tab, or Codex for ChatGPT users.
 ### Requirements
 
 Node 18+, ffmpeg, git, and Google Chrome or Microsoft Edge. The skill installs Playwright (about
-10 MB) once and drives the browser you already have; it downloads Chromium only if neither is
-installed. Optional: Xcode's iOS Simulator or `adb` for native mobile apps, and Python with
+10 MB) once and renders with Playwright's headless shell when it's already on your machine (no
+windows, no Dock icons), otherwise the browser you already have; it downloads Chromium only if
+neither is installed. Optional: Xcode's iOS Simulator or `adb` for native mobile apps, and Python with
 librosa if you bring your own music track. On Windows, use WSL or Git Bash (the mixing scripts
 are bash).
 

@@ -16,7 +16,7 @@ const nodeMajor = Number(process.versions.node.split('.')[0]);
 add('node >= 18', nodeMajor >= 18, process.version, 'install Node 18+ (https://nodejs.org)');
 add('ffmpeg', has('ffmpeg'), run('ffmpeg', ['-version']), 'brew install ffmpeg  |  apt install ffmpeg');
 add('ffprobe', has('ffprobe'), run('ffprobe', ['-version']), 'ships with ffmpeg');
-// Launched exactly as render.mjs and the capture scripts launch it (installed Chrome or Edge first).
+// Launched exactly as render.mjs and the capture scripts launch it (headless shell, then Chrome or Edge).
 let pw = false, pwDetail;
 try { const b = await launch(); pwDetail = b.label; await b.close(); pw = true; }
 catch (e) { pwDetail = e.message.split('\n')[0]; }

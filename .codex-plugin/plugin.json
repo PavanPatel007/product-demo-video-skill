@@ -1,6 +1,6 @@
 {
   "name": "product-demo-video",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Turns a product URL into a launch or demo video rendered from code, with real screenshots, beat-synced sound and a self-critique loop.",
   "author": {
     "name": "Pavan Patel",

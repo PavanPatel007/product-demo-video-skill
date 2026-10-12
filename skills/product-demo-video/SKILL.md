@@ -52,7 +52,7 @@ Never block: if they continue, use the same workflow with no shortcuts.
 node SKILL_DIR/studio/doctor.mjs
 ```
 
-It checks node, ffmpeg, the browser (installed Chrome via Playwright), the optional iOS
+It checks node, ffmpeg, the browser (via Playwright), the optional iOS
 Simulator and adb, and which voice API keys exist (names only, never values) in
 the environment, `~/.config/product-demo-video/.env`, or a `.env` in the user's folder. Run it
 here just to read the voice providers; Step 1 runs it again in the workspace. Fix missing tools
@@ -112,7 +112,9 @@ node doctor.mjs                                      # must be all ✓ for requi
 
 `init` creates `~/.cache/product-demo-video/projects/<product>/` with the studio files, records the
 user's folder as ROOT in `.pdv.json`, and installs Playwright (the driver) once for every future
-video; it drives the Chrome or Edge already installed, and downloads Chromium only if neither is. If the
+video; it drives Playwright's headless shell if present, else the Chrome or Edge already installed, and
+downloads Chromium only if none is. Run the studio scripts with full permissions (outside any agent
+sandbox): a sandboxed browser can't start, and the scripts say so. If the
 workspace already exists (a follow-up edit), it is reused as is. Remember ROOT: Step 8 copies the
 final MP4s there.
 

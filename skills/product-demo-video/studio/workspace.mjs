@@ -44,10 +44,14 @@ if (cmd === 'init') {
       console.log(`installing Playwright (the browser driver) once for every video → ${HOME}/node_modules`);
       sh('npm', ['i', '--prefix', HOME, '--no-audit', '--no-fund', '--silent', 'playwright@^1.48']);
     }
-    // Chrome or Edge already on the machine is used as is; only without one is Chromium downloaded.
+    // Playwright's headless shell, Chrome or Edge already on the machine is used as is; only without
+    // any of them is Chromium downloaded.
     let browser;
     try { browser = execFileSync(process.execPath, [join(work, 'lib', 'browser.mjs'), '--check'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim(); }
-    catch { sh('npx', ['playwright', 'install', 'chromium'], { cwd: HOME }); browser = 'bundled Chromium'; }
+    catch (e) {
+      if (/agent sandbox/.test(String(e.stderr))) { console.error(String(e.stderr).split('\n')[0]); process.exit(1); }
+      sh('npx', ['playwright', 'install', 'chromium'], { cwd: HOME }); browser = 'bundled Chromium';
+    }
     console.log(`browser: ${browser}`);
   }
   console.log(`WORK=${work}   ${fresh ? 'new workspace' : 'existing workspace (follow-up edit)'}`);
