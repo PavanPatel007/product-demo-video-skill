@@ -1,21 +1,41 @@
-// node capture-app.mjs [path ...]
-// Read-only tour of a logged-in web app: logs in once, screenshots every nav page (or the given paths).
-// Needs .env: APP_URL, APP_EMAIL, APP_PASSWORD. Session is cached in .auth.json (gitignored).
-// Never clicks anything except the login submit.
-import { chromium } from 'playwright';
-import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
-import { loadEnv, positional } from './lib/env.mjs';
+// node capture-app.mjs [path ...] [--login]
+// Read-only tour of a logged-in web app: screenshots every nav page (or the given paths).
+// --login opens a visible browser window and the user signs in themselves (SSO, 2FA and passkeys
+// work, no password in .env); only the session is kept, in .auth.json. Without --login it fills
+// APP_EMAIL / APP_PASSWORD from .env. Needs APP_URL. Never clicks anything except the login submit.
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { loadEnv, flag, positional } from './lib/env.mjs';
+import { launch, session } from './lib/browser.mjs';
 
 const env = loadEnv();
-if (!env.APP_URL) { console.error('set APP_URL (and APP_EMAIL / APP_PASSWORD if it needs a login) in .env'); process.exit(1); }
+if (!env.APP_URL) { console.error('set APP_URL in ~/.config/product-demo-video/.env or the folder .env'); process.exit(1); }
 const BASE = env.APP_URL.replace(/\/$/, '');
 mkdirSync('assets/app', { recursive: true });
 
-const browser = await chromium.launch();
-const ctx = await browser.newContext({
-  viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 2,
-  storageState: existsSync('.auth.json') ? '.auth.json' : undefined,
-});
+if (flag('login')) {
+  const b = await launch({ headless: false });
+  const c = await b.newContext({ viewport: null });
+  const p = await c.newPage();
+  await p.goto(BASE, { timeout: 60000 }).catch(() => {});
+  console.log(`Sign in to ${BASE} in the browser window that just opened (waiting up to 10 minutes).`);
+  // Signed in = on the app's origin, not a login URL, no password field, for 3 s in a row.
+  const origin = new URL(BASE).origin, end = Date.now() + 600000;
+  let calm = 0;
+  while (calm < 3 && Date.now() < end && !p.isClosed()) {
+    await p.waitForTimeout(1000).catch(() => {});
+    try {
+      const u = new URL(p.url()), pwd = await p.locator('input[type=password]').count();
+      calm = u.origin === origin && !pwd && !/log-?in|sign-?in|auth|sso|oauth/i.test(u.pathname) ? calm + 1 : 0;
+    } catch { calm = 0; }
+  }
+  if (calm < 3) { await b.close().catch(() => {}); console.error('no sign-in detected; run again with --login'); process.exit(1); }
+  await c.storageState({ path: '.auth.json' });
+  await b.close();
+  console.log('signed in; session saved to .auth.json (deleted by workspace.mjs clean)');
+}
+
+const browser = await launch();
+const ctx = await session(browser, { viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 2 });
 const page = await ctx.newPage();
 const settle = async () => { await page.waitForLoadState('load').catch(() => {}); await page.waitForTimeout(3500); };
 const slug = (u) => { const x = new URL(u); return (x.pathname + x.search).replace(/^\/|\/$/g, '').replace(/[^a-z0-9]+/gi, '_') || 'home'; };
@@ -23,7 +43,7 @@ const slug = (u) => { const x = new URL(u); return (x.pathname + x.search).repla
 await page.goto(BASE, { timeout: 60000 }); await settle();
 const pwd = page.locator('input[type=password]');
 if (await pwd.count()) {
-  if (!env.APP_EMAIL || !env.APP_PASSWORD) { console.error('login page found: set APP_EMAIL and APP_PASSWORD in .env'); process.exit(1); }
+  if (!env.APP_EMAIL || !env.APP_PASSWORD) { console.error('login page found: run node capture-app.mjs --login and sign in yourself'); process.exit(1); }
   await page.screenshot({ path: 'assets/app/login.png' });
   await page.locator('input[type=email], input[name*=email i], input[name*=user i], input[autocomplete=username]').first().fill(env.APP_EMAIL);
   await pwd.first().fill(env.APP_PASSWORD);
@@ -33,7 +53,7 @@ if (await pwd.count()) {
 }
 console.log('landed on', page.url());
 
-const targets = positional().map((p) => BASE + p);
+const targets = positional(['login']).map((p) => BASE + p);
 if (!targets.length) {
   const links = await page.evaluate(() => [...document.querySelectorAll('a[href]')]
     .map((a) => ({ href: a.href, text: a.textContent.trim().replace(/\s+/g, ' ').slice(0, 60) }))

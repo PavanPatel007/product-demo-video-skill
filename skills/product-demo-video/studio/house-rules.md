@@ -31,6 +31,9 @@
 - Assets live in `./assets` and are listed in `assets/README.md`.
 - UI may be rebuilt as vector cards (`card`, `chip`, `toggle`) only with real copy and real colors
   from the captures. `skeletonUI()` is a placeholder for the template; never ship it.
+- Prefer vector UI (`domPage` from `capture-dom.mjs`, or tokens from `assets/code`) over screenshots
+  for anything the camera pushes into; use a screenshot where `compare.png` shows red.
+- The product's code (if the user allowed it) is read-only: never run, build, edit or commit there.
 
 ## Look (the Opus 5.5 grammar, see research.md in the skill)
 - One continuous take. Every scene is made out of the previous one: mask rise, dot → pill,

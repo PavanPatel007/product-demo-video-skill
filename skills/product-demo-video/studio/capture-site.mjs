@@ -1,6 +1,6 @@
 // node capture-site.mjs https://example.com [--w 1920 --h 1080]
 // -> assets/site/hero.png, full.png, section_NN.png, brand.json (computed colors, fonts, logo candidates)
-import { chromium } from 'playwright';
+import { launch } from './lib/browser.mjs';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { arg, positional } from './lib/env.mjs';
 
@@ -9,7 +9,7 @@ if (!URL) { console.error('usage: node capture-site.mjs <url> [--w 1920 --h 1080
 const W = Number(arg('w', 1920)), H = Number(arg('h', 1080));
 mkdirSync('assets/site', { recursive: true });
 
-const browser = await chromium.launch();
+const browser = await launch();
 const page = await browser.newPage({ viewport: { width: W, height: H }, deviceScaleFactor: 2 });
 // 'networkidle' hangs on sites with live trackers/chat widgets
 await page.goto(URL, { waitUntil: 'load', timeout: 60000 });

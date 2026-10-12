@@ -56,16 +56,18 @@ Pick your tool. Every option installs the same skill.
 
 ### Web chat apps (Claude.ai, ChatGPT)
 
-The skill renders video with headless Chromium and ffmpeg on your machine. Web chat sandboxes
+The skill renders video with headless Chrome and ffmpeg on your machine. Web chat sandboxes
 can follow the method (brief, shot list, the animation code) but usually can't capture your
 site or render the MP4. For the full pipeline, use a local agent: Claude Code or the Claude
 desktop app's Code tab, or Codex for ChatGPT users.
 
 ### Requirements
 
-Node 18+, ffmpeg, and git. The skill installs Playwright and Chromium in each video project.
-Python with librosa is only needed if you bring your own music track. On Windows, use WSL or
-Git Bash (the mixing scripts are bash).
+Node 18+, ffmpeg, git, and Google Chrome or Microsoft Edge. The skill installs Playwright (about
+10 MB) once and drives the browser you already have; it downloads Chromium only if neither is
+installed. Optional: Xcode's iOS Simulator or `adb` for native mobile apps, and Python with
+librosa if you bring your own music track. On Windows, use WSL or Git Bash (the mixing scripts
+are bash).
 
 ```bash
 brew install node ffmpeg              # macOS
@@ -84,10 +86,19 @@ a video you like, add it: *"...in the style of https://x.com/someone/status/123"
 How a run goes:
 
 1. **Model check.** If you're not on Claude Opus 5.5, a one-time reminder and how to switch.
-2. **A few questions.** Style, length, formats, music, look, mascot and an optional AI
-   voiceover (ElevenLabs, OpenAI, Google Cloud, Azure, or a free local voice).
-3. **Real assets.** Screenshots of your site and app (logged-in pages are read-only), plus
-   brand colors, fonts and logo.
+2. **A few questions.** Style, length, formats, music, look, mascot, an optional AI
+   voiceover (ElevenLabs, OpenAI, Google Cloud, Azure, or a free local voice), and whether it
+   may read your product's code.
+3. **Real assets, best source first.**
+   - **Your code** (only if you say yes, read-only): exact colors, fonts, logo, icons, wording
+     and the list of screens.
+   - **Your live app as vector UI**: every page is saved as boxes, text and icons instead of a
+     flat screenshot, so it stays sharp when the camera zooms in and each card can move on its
+     own. A comparison image and match score show how faithful each copy is.
+   - **Logged-in apps**: a browser window opens and you sign in yourself (SSO, 2FA, passkeys);
+     no password is saved, and it only looks.
+   - **iOS and Android apps**: screenshots and recordings from the iOS Simulator or an Android
+     device, with a clean 9:41 status bar.
 4. **Shot list on a beat grid.** You approve it once; after that it works without stopping.
 5. **Build and self-critique.** It renders one still per beat, looks at them, scores 1-10,
    fixes the 3 worst problems and repeats until every score is 8+.

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # End-to-end check of the studio: scaffold → doctor → music → stills (beats, 2 themes, 3 formats,
-# mascot) → render → sfx (synth + file cue) → voiceover (local + missing-key path) → mix with
+# mascot) → render → browser → vector capture → code scan → mobile → sfx (synth + file cue) → voiceover (local + missing-key path) → mix with
 # ducking → loudness → check + motion audit → ref.mjs → cost report (Claude fixture, Codex
 # fixture, manual). Uses a temp folder; leaves nothing behind.
 set -euo pipefail
@@ -73,6 +73,52 @@ node prep-footage.mjs clip.mp4 wall --fps 30 --w 320 >/dev/null
 n=$(ls assets/footage/wall/*.jpg | wc -l | tr -d ' ')
 [ "$n" -ge 29 ] && [ -s assets/footage/wall/meta.json ] || fail "prep-footage wrote $n frames"
 ok "prep-footage.mjs → $n JPEG frames + meta.json"
+
+step "browser"
+b=$(node lib/browser.mjs --check) || fail "no browser launches"
+ok "launches $b"
+
+step "vector capture (capture-dom)"
+cp -R "$fx/site" site
+ffmpeg -y -loglevel error -f lavfi -i testsrc2=s=320x180 -frames:v 1 site/photo.png
+font=$(ls /System/Library/Fonts/Supplemental/Arial.ttf /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf 2>/dev/null | head -1 || true)
+[ -n "$font" ] && cp "$font" site/brand.ttf
+r=$(node capture-dom.mjs "file://$(pwd)/site/index.html" --name fixture)
+j=assets/dom/fixture.json
+[ -s "$j" ] && [ -s assets/dom/fixture.compare.png ] || { echo "$r"; fail "capture-dom outputs missing"; }
+node -e '
+const P = require("./'"$j"'"), text = P.nodes.filter((n) => n.k === "text").map((n) => n.words.map((w) => w[0]).join(" ")).join(" | ");
+const need = ["Monthly revenue", "$48,210", "UP 12%", "Search leads", "Acme Corp", "Dashboard"];
+const miss = need.filter((s) => !text.includes(s));
+if (miss.length) { console.error("missing text:", miss, text); process.exit(1); }
+if (P.nodes.filter((n) => n.k === "svg").length < 3) { console.error("inline SVG icons missing"); process.exit(1); }
+if (P.nodes.filter((n) => n.file).length < 4) { console.error("raster parts or svg logo missing", P.nodes.filter((n) => n.file)); process.exit(1); }
+if (!P.nodes.some((n) => n.k === "box" && n.sh && n.r[0] >= 14)) { console.error("card with radius and shadow missing"); process.exit(1); }
+' || fail "vector page incomplete"
+[ -z "$font" ] || node -e 'process.exit(require("./'"$j"'").fonts.length ? 0 : 1)' || fail "page font not captured"
+m=$(echo "$r" | grep -o 'vector match [0-9]*%' | grep -o '[0-9]*')
+[ "${m:-0}" -ge 90 ] || { echo "$r"; fail "vector copy matches the screenshot only ${m}%"; }
+ok "text (with text-transform and placeholder), SVG icons, raster parts, shadows, page font; vector match ${m}%"
+
+step "code scan (read-only)"
+cp -R "$fx/repo" repo
+echo "SECRET_KEY=sk-live-smoke-never-read" >repo/apps/web/.env.local
+r=$(node scan-code.mjs repo)
+c=assets/code/code.json
+node -e '
+const j = require("./'"$c"'");
+const ok = ["/", "/settings", "/leads/[id]"].every((s) => j.screens.includes(s)) && j.tokens.cssVars[":root"]["--primary"] === "#ff4f1f"
+  && j.tokens.cssVars[".dark"] && j.fonts.nextFontGoogle.includes("Inter") && j.icons.includes("lucide-react") && j.svg.length === 1 && j.copy.length === 1;
+if (!ok) { console.error(JSON.stringify(j, null, 1)); process.exit(1); }
+' || fail "scan-code missed screens, tokens, fonts, icons, logo or copy"
+! grep -rq "sk-live" assets/code && ! echo "$r" | grep -q "sk-live" || fail "scan-code read a .env file"
+ok "routes (groups and params), light/dark tokens, next/font, icon library, logo, copy; .env never read"
+
+step "mobile capture"
+out=$(node capture-mobile.mjs shot smoke --android 2>&1) && fail "shot without a device should fail"
+echo "$out" | grep -q "no booted Android device" || { echo "$out"; fail "unclear message without a device"; }
+node capture-mobile.mjs devices >/dev/null || true
+ok "clear message when no simulator or device is running"
 
 step "sfx"
 mkdir -p sfx && ffmpeg -y -loglevel error -f lavfi -i "sine=f=900:d=0.4" -af "afade=t=in:d=0.15,afade=t=out:st=0.2:d=0.2" sfx/tone.wav
@@ -149,6 +195,7 @@ ln -s "$(cd node_modules && pwd -P)" "$pdv/node_modules"
 w=$(cd "$root" && PDV_HOME="$pdv" node "$studio/workspace.mjs" init "Smoke Test")
 work=$(echo "$w" | sed -n 's/^WORK=\([^ ]*\).*/\1/p')
 [ "$work" = "$pdv/projects/smoke-test" ] && [ -s "$work/index.html" ] && [ -s "$work/.pdv.json" ] || { echo "$w"; fail "init didn't create the workspace in PDV_HOME"; }
+echo "$w" | grep -q "^browser: " || { echo "$w"; fail "init didn't report the browser it will use"; }
 [ "$(ls -A "$root")" = ".env" ] || fail "init wrote into the user's folder: $(ls -A "$root")"
 (cd "$work" && ELEVENLABS_API_KEY= node doctor.mjs) | grep "ElevenLabs" | grep -q "ready" || fail "doctor didn't read the key from the user's folder .env"
 (cd "$work" && node doctor.mjs) | grep -q "smoke-not-a-key" && fail "doctor printed a key value"

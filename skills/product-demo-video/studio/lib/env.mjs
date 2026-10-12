@@ -31,10 +31,14 @@ export const arg = (k, d) => {
   return i > 0 && process.argv[i + 1] !== undefined && !process.argv[i + 1].startsWith('--') ? process.argv[i + 1] : d;
 };
 export const flag = (k) => process.argv.includes('--' + k);
-export const positional = () => {
+// bools: flags that take no value, so the word after them stays positional.
+export const positional = (bools = []) => {
   const out = [];
   for (let i = 2; i < process.argv.length; i++) {
-    if (process.argv[i].startsWith('--')) { if (process.argv[i + 1] && !process.argv[i + 1].startsWith('--')) i++; continue; }
+    if (process.argv[i].startsWith('--')) {
+      if (!bools.includes(process.argv[i].slice(2)) && process.argv[i + 1] && !process.argv[i + 1].startsWith('--')) i++;
+      continue;
+    }
     out.push(process.argv[i]);
   }
   return out;

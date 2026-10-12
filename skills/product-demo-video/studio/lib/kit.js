@@ -598,6 +598,145 @@ const seekWith = (draw) => async (t) => {
   return true;
 };
 
+// ---------- vector UI (capture-dom.mjs) ----------
+// A captured page redrawn as vectors: boxes, borders, shadows, text in the product's own fonts,
+// SVG icons; raster only where the page itself is raster (photos, <canvas> charts). Sharp at any
+// camera zoom, and every node can move on its own. Declare DOM_PAGES = { dash: 'assets/dom/x.json' }
+// and add loadDom(DOM_PAGES) to window.ready.
+const DOM = {}, _domFonts = new Set(), _domCv = new Map();
+function _xhr(url, type = '') {
+  return new Promise((res, rej) => {
+    const x = new XMLHttpRequest(); x.open('GET', url); x.responseType = type;
+    x.onload = () => res(type ? x.response : x.responseText); x.onerror = () => rej(new Error('missing ' + url)); x.send();
+  });
+}
+// Icons are vector, but canvas rasterizes an <img> at its intrinsic size: declare it 4x so zooms stay crisp.
+function _svgURL(markup, w, h) {
+  const doc = new DOMParser().parseFromString(markup, 'image/svg+xml'), el = doc.documentElement;
+  el.setAttribute('width', w * 4); el.setAttribute('height', h * 4);
+  return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(new XMLSerializer().serializeToString(el));
+}
+function loadDom(map) {
+  return Promise.all(Object.entries(map || {}).map(async ([name, src]) => {
+    const base = new URL(src, location.href), at = (f) => new URL(f, base).href;
+    const P = JSON.parse(await _xhr(base.href));
+    P.name = name; P.img = {};
+    await Promise.all([
+      ...(P.fonts || []).map(async (f) => {
+        const key = [f.family, f.weight, f.style, f.src].join('|');
+        if (_domFonts.has(key)) return;
+        _domFonts.add(key);
+        const face = new FontFace(f.family, await _xhr(at(f.src), 'arraybuffer'),
+          { weight: f.weight || 'normal', style: f.style || 'normal', ...(f.range ? { unicodeRange: f.range } : {}) });
+        await face.load(); document.fonts.add(face);
+      }),
+      ...P.nodes.map((n, i) => {
+        const url = n.k === 'svg' ? _svgURL(n.svg, n.w, n.h) : n.file ? at(n.file) : null;
+        return url && new Promise((res, rej) => {
+          const im = new Image(); im.onload = () => { P.img[i] = im; res(); };
+          im.onerror = () => rej(new Error('missing dom image ' + (n.file || 'svg ' + i))); im.src = url;
+        });
+      }),
+    ]);
+    DOM[name] = P;
+  }));
+}
+function _rr(x, y, w, h, r) {
+  const m = Math.max(0, Math.min(w, h) / 2);
+  g.beginPath(); g.roundRect(x, y, Math.max(0, w), Math.max(0, h), (Array.isArray(r) ? r : [r || 0]).map((v) => Math.max(0, Math.min(v, m))));
+}
+function _domNode(P, n, i) {
+  if (n.k === 'text') {
+    g.font = n.f; g.fillStyle = n.c; g.letterSpacing = (n.ls || 0) + 'px'; g.textAlign = 'left'; g.textBaseline = 'alphabetic';
+    for (const [t, wx, by] of n.words) g.fillText(t, wx, by);
+    return;
+  }
+  const r = n.r || 0;
+  // Shadows: the shape is drawn far off-frame and only its shadow is offset back, so a card with a
+  // translucent fill doesn't darken itself. Canvas shadows live in device pixels, hence the matrix.
+  for (const s of n.sh || []) {
+    const M = g.getTransform(), far = 1e4, sp = s.spread;
+    g.save(); g.shadowColor = s.c; g.shadowBlur = s.blur * Math.hypot(M.a, M.b);
+    g.shadowOffsetX = M.a * (far + s.x) + M.c * s.y; g.shadowOffsetY = M.b * (far + s.x) + M.d * s.y;
+    _rr(n.x - far - sp, n.y - sp, n.w + sp * 2, n.h + sp * 2, (Array.isArray(r) ? r : [r]).map((v) => v + sp));
+    g.fillStyle = '#000'; g.fill(); g.restore();
+  }
+  if (n.bg) { _rr(n.x, n.y, n.w, n.h, r); g.fillStyle = n.bg; g.fill(); }
+  const img = P.img[i];
+  if (img) { g.save(); _rr(n.x, n.y, n.w, n.h, r); g.clip(); g.drawImage(img, n.x, n.y, n.w, n.h); g.restore(); }
+  if (n.bd) {
+    const [[t, tc], [rt, rc], [b, bc], [l, lc]] = n.bd;
+    if (t === rt && rt === b && b === l && tc === rc && rc === bc && bc === lc) {
+      _rr(n.x + t / 2, n.y + t / 2, n.w - t, n.h - t, (Array.isArray(r) ? r : [r]).map((v) => v - t / 2));
+      g.strokeStyle = tc; g.lineWidth = t; g.stroke();
+    } else {
+      if (t && tc) { g.fillStyle = tc; g.fillRect(n.x, n.y, n.w, t); }
+      if (b && bc) { g.fillStyle = bc; g.fillRect(n.x, n.y + n.h - b, n.w, b); }
+      if (l && lc) { g.fillStyle = lc; g.fillRect(n.x, n.y, l, n.h); }
+      if (rt && rc) { g.fillStyle = rc; g.fillRect(n.x + n.w - rt, n.y, rt, n.h); }
+    }
+  }
+}
+// Draws page P (a DOM key or object) w units wide at (x, y). region [x, y, w, h] in page px draws
+// just that part (a card, the sidebar). each(node, i) returns null to skip a node or { a, dx, dy }
+// (page px) to move it: stagger rows in, slide a panel, fade the rest. Returns the drawn height.
+function domPage(P, x, y, w, { region, each, bg = true } = {}) {
+  if (typeof P === 'string') P = DOM[P];
+  const [rx, ry, rw, rh] = region || [0, 0, P.w, P.h];
+  g.save();
+  g.translate(x, y); g.scale(w / rw, w / rw); g.translate(-rx, -ry);
+  g.beginPath(); g.rect(rx, ry, rw, rh); g.clip();
+  if (bg) { alpha(1); g.fillStyle = P.bg; g.fillRect(rx, ry, rw, rh); }
+  for (let i = 0; i < P.nodes.length; i++) {
+    const n = P.nodes[i];
+    if (n.x > rx + rw || n.y > ry + rh || n.x + n.w < rx || n.y + n.h < ry) continue;
+    let a = 1, dx = 0, dy = 0;
+    if (each) { const e = each(n, i); if (!e) continue; a = e.a ?? 1; dx = e.dx || 0; dy = e.dy || 0; }
+    if (a * n.o <= 0) continue;
+    g.save();
+    if (n.clip != null) { const c = P.clips[n.clip]; _rr(c[0], c[1], c[2], c[3], c[4]); g.clip(); }
+    g.translate(dx, dy); alpha(a * n.o);
+    _domNode(P, n, i);
+    g.restore();
+  }
+  g.restore();
+  return rh * (w / rw);
+}
+// Box of the first text containing `text`, in page px, or in frame units when placed like domPage.
+function domFind(P, text, x = 0, y = 0, w, { region } = {}) {
+  if (typeof P === 'string') P = DOM[P];
+  const n = P.nodes.find((m) => m.k === 'text' && m.words.map((v) => v[0]).join(' ').includes(text));
+  if (!n) throw new Error(`"${text}" not found in ${P.name || P.url}`);
+  const [rx, ry, rw] = region || [0, 0, P.w], k = (w ?? rw) / rw;
+  return { x: x + (n.x - rx) * k, y: y + (n.y - ry) * k, w: n.w * k, h: n.h * k };
+}
+// The page (or a region) as a canvas, for plane3d() tilts. Static content, so caching it is exact.
+function domCanvas(P, { region, scale = 2 } = {}) {
+  if (typeof P === 'string') P = DOM[P];
+  const key = `${P.name}|${region}|${scale}`;
+  if (!_domCv.has(key)) {
+    const [, , rw, rh] = region || [0, 0, P.w, P.h], cv = document.createElement('canvas');
+    cv.width = Math.round(rw * scale); cv.height = Math.round(rh * scale);
+    const sa = SA; SA = 1;
+    withCtx(cv.getContext('2d'), () => { g.setTransform(1, 0, 0, 1, 0, 0); domPage(P, 0, 0, cv.width, { region }); });
+    SA = sa; _domCv.set(key, cv);
+  }
+  return _domCv.get(key);
+}
+
+// Phone for real mobile captures (capture-mobile.mjs): body, the screen clipped to the device's
+// corners, Dynamic Island. drawScreen(x, y, w, h) paints the screen (shot, footage, domPage).
+// aspect = screen height / width (1179x2556 captures: 2.168). Returns the height.
+function phone(x, y, w, drawScreen, { aspect = 2.168, body = '#0B0B0C', island = true, lift = 1 } = {}) {
+  const bz = w * 0.035, sw = w - bz * 2, h = sw * aspect + bz * 2, r = w * 0.16;
+  card(x, y, w, h, { r, fill: body, lift });
+  g.save(); _rr(x + bz, y + bz, sw, h - bz * 2, r - bz); g.clip();
+  drawScreen(x + bz, y + bz, sw, h - bz * 2);
+  g.restore();
+  if (island) { g.save(); alpha(1); _rr(x + w / 2 - w * 0.15, y + bz + w * 0.03, w * 0.3, w * 0.085, w * 0.0425); g.fillStyle = '#000'; g.fill(); g.restore(); }
+  return h;
+}
+
 // ---------- optional character ----------
 // Box mascot with fixed proportions. squash -1..1 (negative = stretch), look = [-1..1, -1..1].
 // Blinks on a seeded schedule; draw on downbeats for reactions (bounce, look at the cursor).

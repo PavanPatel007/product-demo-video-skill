@@ -3,7 +3,8 @@ name: product-demo-video
 description: >-
   Creates product demo, launch, and promo videos rendered from code, tuned for Claude Opus 5.5:
   checks the model, asks a minimal set of intake questions (including an optional AI voiceover
-  with ElevenLabs, OpenAI, Google or Azure), captures the real product, plans shots on a beat
+  with ElevenLabs, OpenAI, Google or Azure), captures the real product (its code with
+  permission, the live web app as sharp vector UI, iOS and Android screens), plans shots on a beat
   grid, builds a deterministic seek(t) canvas animation in the viral Opus 5.5 style (one
   continuous take, mask-rise type, 3D UI with screen-studio camera, flood and iris transitions,
   count-ups, mascot), analyzes reference videos or X posts, critiques its own frames and motion
@@ -51,7 +52,8 @@ Never block: if they continue, use the same workflow with no shortcuts.
 node SKILL_DIR/studio/doctor.mjs
 ```
 
-It checks node, ffmpeg, Playwright, and which voice API keys exist (names only, never values) in
+It checks node, ffmpeg, the browser (installed Chrome via Playwright), the optional iOS
+Simulator and adb, and which voice API keys exist (names only, never values) in
 the environment, `~/.config/product-demo-video/.env`, or a `.env` in the user's folder. Run it
 here just to read the voice providers; Step 1 runs it again in the workspace. Fix missing tools
 yourself where you can; tell the user only what needs them (e.g. installing ffmpeg).
@@ -60,7 +62,8 @@ yourself where you can; tell the user only what needs them (e.g. installing ffmp
 
 Skip anything the user already answered. In plain text, ask only for what can't be multiple choice:
 > What's the product URL? Optional: the 3 features to show, one proof number, and the CTA.
-> If the app is behind a login: test credentials (add them to `.env`, I'll only look, never change data).
+> If the app is behind a login, I'll open a browser window and you sign in yourself; I only look,
+> never change data, and only the session is kept until the video is done.
 
 Then ask these in one round (first option = recommended / default):
 
@@ -73,6 +76,8 @@ Then ask these in one round (first option = recommended / default):
 | `voice` | Add an AI voiceover? | built from doctor output, see below |
 | `look` | Which look? | Keynote continuous take in the product's brand: one unbroken shot, UI in 3D, flood and iris transitions (Recommended) · Kinetic launch: word slams, chapter labels, hard cuts on the beat · Match a reference video or X post I'll give you · Both brand and neutral house style: two versions |
 | `mascot` | Add a mascot character? | No (Recommended) · Yes: a simple box character that reacts on the beat (or describe yours) |
+| `code` | Can I read your product's code to get its exact colors, fonts, icons, wording and screens? Read-only: I never run, build or change it, and never open `.env` or key files. | Yes, it's this folder (Recommended when this folder has the product's `package.json`, `.git`, `pubspec.yaml` or Xcode project) · Yes, it's in another folder (I'll give the path) · No, use the live product only |
+| `platform` | Where does the product run? (skip when the URL makes it obvious) | Web app or website (Recommended) · iOS app: I'll open it in the iOS Simulator · Android app: emulator, or a phone with USB debugging · Web and mobile |
 
 **`voice` options, always in this order.** Mark each `(key found)` or `(needs KEY_NAME in .env)`
 from the doctor output:
@@ -106,7 +111,8 @@ node doctor.mjs                                      # must be all ✓ for requi
 ```
 
 `init` creates `~/.cache/product-demo-video/projects/<product>/` with the studio files, records the
-user's folder as ROOT in `.pdv.json`, and installs Playwright once for every future video. If the
+user's folder as ROOT in `.pdv.json`, and installs Playwright (the driver) once for every future
+video; it drives the Chrome or Edge already installed, and downloads Chromium only if neither is. If the
 workspace already exists (a follow-up edit), it is reused as is. Remember ROOT: Step 8 copies the
 final MP4s there.
 
@@ -115,16 +121,59 @@ time; you'll report total time at the end.
 
 ## Step 2: Capture real assets
 
+Take the best source available, in this order. The camera pushes in 2-3x: a screenshot goes soft
+there, while vector UI stays sharp and every card, row and icon can move on its own.
+
+**1. The product's code** (only if the user said yes to `code`):
+
 ```bash
-node capture-site.mjs https://product.com               # hero, full page, sections, brand.json (colors, fonts, logo)
-node capture-app.mjs /dashboard /reports                # logged-in app (APP_URL/APP_EMAIL/APP_PASSWORD in .env), read-only
-node capture-parts.mjs /dashboard                       # crops cards/panels so they can animate separately
-node probe-targets.mjs targets.json                     # CSS boxes of text you'll ring or click → assets/targets.json
+node scan-code.mjs [path]        # default: the user's folder -> assets/code/code.json + svg/ fonts/ icons/ copy/
 ```
 
-Download the fonts listed in `assets/brand.json` to `assets/fonts/` and declare them with
-`@font-face`. Write `assets/README.md` listing every file and what it shows. Never invent
-screens or numbers.
+Use its CSS variables / Tailwind / iOS / Android colors for `THEMES` (exact hex and radius), its
+fonts (`@font-face` from `assets/code/fonts`, or the `next/font` names from Google Fonts), the logo
+from `assets/code/svg`, `screens` to pick shots, and `copy/` for real wording. Then read the files
+under `read` for the screens in the shot list: they show the real layout, states and labels to
+rebuild with `card`, `chip` and `toggle`. Read-only: never run, build, install or edit the repo,
+never open `.env` or key files, and never put source code in the film. If the user already runs
+the app locally, ask before using that dev server; then capture it like a site (step 4).
+
+**2. Site and brand:** `node capture-site.mjs https://product.com` (hero, sections, `brand.json`).
+
+**3. Logged-in app:** say "A browser window will open: sign in there and I'll take it from there,
+only looking", then run `node capture-app.mjs --login [/paths]`. SSO, 2FA and passkeys work, no
+password goes in a file, and only the session is kept (`.auth.json`, deleted by `workspace.mjs clean`).
+`APP_EMAIL` / `APP_PASSWORD` in `.env` without `--login` remains for shared test accounts.
+
+**4. Vector UI of every screen you'll show:**
+
+```bash
+node capture-dom.mjs /dashboard /leads          # or full URLs; reuses the --login session
+```
+
+Open each `assets/dom/<name>.compare.png` (screenshot | vector | red = differences). At 90%+ use
+the vector page; where it's red (canvas charts it couldn't see, masks, script-driven text), use the
+screenshot for that part. It prints the CSS features canvas can't reproduce. In `index.html`:
+`const DOM_PAGES = { dash: 'assets/dom/dashboard.json' }`, add `loadDom(DOM_PAGES)` to
+`window.ready`, then `domPage('dash', x, y, w, { region, each })` draws it (region = one card,
+`each(node)` returns `{ a, dx, dy }` to stagger or slide parts), `domFind('dash', 'Revenue', x, y, w)`
+gives cursor and ring targets, and `domCanvas('dash')` is the texture for `plane3d`.
+
+**5. Native mobile apps** (`platform` iOS / Android): `node capture-mobile.mjs devices`. Ask the
+user to open the app in the iOS Simulator (or emulator / USB phone) and go to each screen, or jump
+there with `capture-mobile.mjs open <deep-link>`; never tap or type yourself. `shot <name>` per
+screen (clean 9:41 status bar), `record <name> --seconds 8` for a real interaction (then
+`prep-footage.mjs`). Show them in `phone(x, y, w, drawScreen, { aspect })`.
+
+**6. Your own browser tool** (Cursor's browser, Claude in Chrome, a Playwright MCP), only when the
+login window in step 3 can't sign in (a passkey bound to the user's own browser) and the user is
+signed in there: navigate and screenshot read-only. For vectors, evaluate `lib/dom-extract.js`,
+then `JSON.stringify(__pdvExtract())`, and save it as `assets/dom/<name>.json`; raster parts and
+fonts are missing that way, so compare it with a screenshot first.
+
+Screenshots still have uses: `capture-parts.mjs /dashboard` crops cards, and
+`probe-targets.mjs targets.json` finds text boxes on screenshot-based shots. Write
+`assets/README.md` listing every file and what it shows. Never invent screens or numbers.
 
 Capture gotchas:
 - `networkidle` hangs on sites with live trackers; the scripts use `load` plus a delay.
@@ -132,6 +181,8 @@ Capture gotchas:
   (`--h 3200`) and crop parts from DOM boxes.
 - Off-canvas drawers (x > viewport) break clips and add shadows; the scripts skip them.
 - Never click anything that writes data (save, delete, send, publish, logout).
+- Entrance animations are jumped to their end state before a DOM capture; endless ones (marquees)
+  stop where they are. Script-driven effects (text scrambles) can still differ: check compare.png.
 
 ## Step 3: Reference, brief, style guide, script, beat grid
 
@@ -298,6 +349,9 @@ Report in this order:
 - API keys and passwords only in `.env` (`~/.config/product-demo-video/.env` or the user's
   folder); refer to them by variable name; never print them or copy them into the workspace.
 - Logged-in apps are read-only: navigate and screenshot, never change data.
+- The product's code is read only with the user's yes, and only read: never run, build, install,
+  edit or commit in it, never open `.env` or key files, never put its source in the film.
+- Native apps: the user or a deep link navigates; never tap or type in their simulator or phone.
 
 ## Additional resources
 
@@ -305,6 +359,6 @@ Report in this order:
 - Brief templates and the critique prompt: [briefs.md](briefs.md)
 - Voiceover providers, voices and script timing: [voiceover.md](voiceover.md)
 - Studio files copied into each workspace by `workspace.mjs`: `studio/` (render.mjs, lib/motion.js, lib/kit.js,
-  capture-*.mjs, ref.mjs, prep-footage.mjs, motion-audit.mjs, doctor.mjs, voiceover.mjs, music.mjs, sfx.mjs,
+  lib/browser.mjs, lib/dom-extract.js, capture-site/app/dom/parts/mobile.mjs, scan-code.mjs, ref.mjs, prep-footage.mjs, motion-audit.mjs, doctor.mjs, voiceover.mjs, music.mjs, sfx.mjs,
   beats.py, mix.sh, check.sh, cost-report.mjs, pricing.json, house-rules.md, index.html, env.example)
 - Method source: [How to build motion design studio with Opus 5.5](https://x.com/0xMovez/status/2104216919033192746)

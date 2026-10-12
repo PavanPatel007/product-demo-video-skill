@@ -3,6 +3,7 @@
 import { execFileSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { loadEnv, flag } from './lib/env.mjs';
+import { launch } from './lib/browser.mjs';
 
 const env = loadEnv();
 const run = (bin, args) => { try { return execFileSync(bin, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).split('\n')[0].trim(); } catch { return null; } };
@@ -15,15 +16,14 @@ const nodeMajor = Number(process.versions.node.split('.')[0]);
 add('node >= 18', nodeMajor >= 18, process.version, 'install Node 18+ (https://nodejs.org)');
 add('ffmpeg', has('ffmpeg'), run('ffmpeg', ['-version']), 'brew install ffmpeg  |  apt install ffmpeg');
 add('ffprobe', has('ffprobe'), run('ffprobe', ['-version']), 'ships with ffmpeg');
-// Resolved like render.mjs resolves it: a local node_modules or the shared one in a parent folder.
-let pw = false, pwDetail = 'not installed', chromium;
-try { ({ chromium } = await import('playwright')); } catch {}
-if (chromium) {
-  try { const b = await chromium.launch(); await b.close(); pw = true; pwDetail = 'chromium launches'; }
-  catch (e) { pwDetail = 'installed, browser missing: ' + e.message.split('\n')[0]; }
-}
-add('playwright + chromium', pw, pwDetail, 'node workspace.mjs init <name> (installs it once for every video), or npx playwright install chromium');
+// Launched exactly as render.mjs and the capture scripts launch it (installed Chrome or Edge first).
+let pw = false, pwDetail;
+try { const b = await launch(); pwDetail = b.label; await b.close(); pw = true; }
+catch (e) { pwDetail = e.message.split('\n')[0]; }
+add('browser (Playwright driving Chrome)', pw, pwDetail, 'node workspace.mjs init <name> (installs the driver once for every video; downloads Chromium only if Chrome is missing)');
 add('python librosa (only for a supplied music track)', run('python3', ['-c', 'import librosa; print(librosa.__version__)']), 'optional', 'pip install numpy librosa soundfile', false);
+add('iOS Simulator (only for native iOS apps)', run('xcrun', ['simctl', 'help']) !== null, 'optional', 'install Xcode from the App Store', false);
+add('adb (only for native Android apps)', has('adb'), 'optional', 'brew install android-platform-tools  |  apt install adb', false);
 
 const voice = [
   ['elevenlabs', ['ELEVENLABS_API_KEY'], 'ElevenLabs (recommended)'],

@@ -18,7 +18,7 @@ import { arg, flag, positional } from './lib/env.mjs';
 const studio = dirname(fileURLToPath(import.meta.url));
 const HOME = resolve(process.env.PDV_HOME || join(process.env.XDG_CACHE_HOME || join(homedir(), '.cache'), 'product-demo-video'));
 const PROJECTS = join(HOME, 'projects');
-const [cmd, rawName] = positional();
+const [cmd, rawName] = positional(['all', 'no-install']);
 const name = (rawName || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 const work = join(PROJECTS, name);
 const meta = (dir) => { try { return JSON.parse(readFileSync(join(dir, '.pdv.json'), 'utf8')); } catch { return {}; } };
@@ -39,10 +39,16 @@ if (cmd === 'init') {
   }
   const now = new Date().toISOString();
   writeFileSync(join(work, '.pdv.json'), JSON.stringify({ name, root, created: meta(work).created || now, updated: now }, null, 1));
-  if (!flag('no-install') && !existsSync(join(HOME, 'node_modules', 'playwright', 'package.json'))) {
-    console.log(`installing Playwright once for every video → ${HOME}/node_modules`);
-    sh('npm', ['i', '--prefix', HOME, '--no-audit', '--no-fund', '--silent', 'playwright@^1.48']);
-    sh('npx', ['playwright', 'install', 'chromium'], { cwd: HOME });
+  if (!flag('no-install')) {
+    if (!existsSync(join(HOME, 'node_modules', 'playwright', 'package.json'))) {
+      console.log(`installing Playwright (the browser driver) once for every video → ${HOME}/node_modules`);
+      sh('npm', ['i', '--prefix', HOME, '--no-audit', '--no-fund', '--silent', 'playwright@^1.48']);
+    }
+    // Chrome or Edge already on the machine is used as is; only without one is Chromium downloaded.
+    let browser;
+    try { browser = execFileSync(process.execPath, [join(work, 'lib', 'browser.mjs'), '--check'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim(); }
+    catch { sh('npx', ['playwright', 'install', 'chromium'], { cwd: HOME }); browser = 'bundled Chromium'; }
+    console.log(`browser: ${browser}`);
   }
   console.log(`WORK=${work}   ${fresh ? 'new workspace' : 'existing workspace (follow-up edit)'}`);
   console.log(`ROOT=${root}   final MP4s go here, nothing else`);
@@ -52,9 +58,10 @@ if (cmd === 'init') {
   const before = size(work);
   if (flag('all')) rmSync(work, { recursive: true, force: true });
   else {
-    // Keep the film's source and the review images (out/check); drop renders, drafts and references.
+    // Keep the film's source and the review images (out/check); drop renders, drafts, references
+    // and the logged-in session.
     for (const f of readdirSync(join(work, 'out'))) if (f !== 'check') rmSync(join(work, 'out', f), { recursive: true, force: true });
-    for (const d of ['refs', 'audio/vo']) rmSync(join(work, d), { recursive: true, force: true });
+    for (const d of ['refs', 'audio/vo', '.auth.json']) rmSync(join(work, d), { recursive: true, force: true });
   }
   console.log(`freed ${mb(before - (existsSync(work) ? size(work) : 0))}${flag('all') ? `, removed ${work}` : `; source kept in ${work} (${mb(size(work))})`}`);
 } else if (cmd === 'list') {

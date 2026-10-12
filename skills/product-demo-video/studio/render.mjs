@@ -11,7 +11,7 @@
 // --max-sub), so fast moves get no ghost copies
 // and still frames stay sharp. --sub N uses exactly N samples. --shutter 0.5 is a film-like 180°
 // shutter (1 = the whole frame interval). Samples never cross a time listed in window.CUTS.
-import { chromium } from 'playwright';
+import { launch } from './lib/browser.mjs';
 import { spawn } from 'node:child_process';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 
@@ -30,7 +30,9 @@ const run = (args) => new Promise((res, rej) => {
 });
 
 mkdirSync('out', { recursive: true });
-const browser = await chromium.launch({ args: ['--allow-file-access-from-files'] });   // WebGL planes and footage refuse file:// otherwise
+// file access: WebGL planes and footage refuse file:// otherwise.
+// software 2D canvas: Chrome moves a GPU canvas to the CPU after repeated getImageData, so pixels would depend on seek order.
+const browser = await launch({ args: ['--allow-file-access-from-files', '--disable-accelerated-2d-canvas'] });
 const page = await browser.newPage({ viewport: { width: W, height: H }, deviceScaleFactor: 1 });
 page.on('pageerror', (e) => { console.error('page error:', e.message); process.exit(1); });
 await page.goto(`file://${process.cwd()}/index.html?w=${W}&h=${H}${QUERY}`);

@@ -2,8 +2,8 @@
 // Read-only. Screenshots every card-like element per page into assets/parts/ and writes
 // assets/parts/index.json with each part's CSS box and text. Uses a tall viewport because
 // many apps scroll inside an inner pane, where fullPage screenshots capture nothing extra.
-import { chromium } from 'playwright';
-import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
+import { launch, session } from './lib/browser.mjs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { loadEnv, arg, positional } from './lib/env.mjs';
 
 const env = loadEnv();
@@ -13,9 +13,8 @@ if (!BASE || !PAGES.length) { console.error('usage: node capture-parts.mjs /path
 const VW = 1920, VH = Number(arg('h', 3200));
 mkdirSync('assets/parts', { recursive: true });
 
-const browser = await chromium.launch();
-const ctx = await browser.newContext({ viewport: { width: VW, height: VH }, deviceScaleFactor: 2,
-  storageState: existsSync('.auth.json') ? '.auth.json' : undefined });
+const browser = await launch();
+const ctx = await session(browser, { viewport: { width: VW, height: VH }, deviceScaleFactor: 2 });
 const page = await ctx.newPage();
 const index = [];
 

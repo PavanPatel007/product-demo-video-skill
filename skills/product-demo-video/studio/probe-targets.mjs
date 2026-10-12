@@ -2,8 +2,8 @@
 // targets.json: { "/dashboard": ["Not named", "Article drafts"], "/content": ["searches/mo"] }
 // Read-only. Writes assets/targets.json with the CSS box of every text node containing a needle,
 // so rings and cursor targets in the animation land exactly on real UI.
-import { chromium } from 'playwright';
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { launch, session } from './lib/browser.mjs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { loadEnv, arg, positional } from './lib/env.mjs';
 
 const env = loadEnv();
@@ -12,9 +12,8 @@ const [file] = positional();
 if (!BASE || !file) { console.error('usage: node probe-targets.mjs targets.json [--base URL]'); process.exit(1); }
 const JOBS = JSON.parse(readFileSync(file, 'utf8'));
 
-const browser = await chromium.launch();
-const ctx = await browser.newContext({ viewport: { width: 1920, height: Number(arg('h', 3200)) },
-  storageState: existsSync('.auth.json') ? '.auth.json' : undefined });
+const browser = await launch();
+const ctx = await session(browser, { viewport: { width: 1920, height: Number(arg('h', 3200)) } });
 const page = await ctx.newPage();
 const out = {};
 for (const [p, needles] of Object.entries(JOBS)) {
