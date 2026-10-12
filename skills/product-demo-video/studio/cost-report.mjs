@@ -1,8 +1,9 @@
-// node cost-report.mjs --video deliver/final.mp4 [source flags]
+// node cost-report.mjs --video out/final.mp4 [source flags]
 //
 // Token sources, tried in this order unless --source is given:
-//   claude    Claude Code session logs for THIS project folder (~/.claude/projects/<cwd-slug>/*.jsonl)
-//   codex     Codex CLI session logs whose cwd is THIS folder (~/.codex/sessions/**.jsonl)
+//   claude    Claude Code session logs for this folder or the user's folder the workspace delivers
+//             to (~/.claude/projects/<folder-slug>/*.jsonl)
+//   codex     Codex CLI session logs whose cwd is one of those folders (~/.codex/sessions/**.jsonl)
 //   manual    --model claude-opus-5-5 --input N --output N [--cache-read N --cache-write N --cache-write-1h N]
 //             (copy these from your usage dashboard: Cursor, Anthropic Console, OpenRouter, ...)
 //   estimate  --transcript chat.jsonl   visible conversation text / 4. LOWER BOUND: excludes tool
@@ -14,11 +15,13 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
-import { arg, flag } from './lib/env.mjs';
+import { arg, flag, workspace } from './lib/env.mjs';
 
 const here = new URL('.', import.meta.url).pathname;
 const pricing = JSON.parse(readFileSync(arg('pricing', existsSync('pricing.json') ? 'pricing.json' : join(here, 'pricing.json')), 'utf8'));
 const cwd = process.cwd();
+// The agent's session runs in the user's folder, not in the workspace, so its logs are filed there.
+const folders = [...new Set([workspace()?.root, cwd, process.env.PWD].filter(Boolean))];
 
 const seconds = arg('seconds') ? Number(arg('seconds')) : arg('video')
   ? Number(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', arg('video')], { encoding: 'utf8' }))
@@ -34,7 +37,7 @@ const pickFiles = (files) => {
 };
 
 function fromClaude() {
-  const slugs = [...new Set([cwd, process.env.PWD].filter(Boolean))].map((p) => join(homedir(), '.claude', 'projects', p.replace(/[^a-zA-Z0-9]/g, '-')));
+  const slugs = folders.map((p) => join(homedir(), '.claude', 'projects', p.replace(/[^a-zA-Z0-9]/g, '-')));
   const root = arg('claude-dir', slugs.find(existsSync) || slugs[0]);
   const files = pickFiles(walk(root));
   if (!files.length) return null;
@@ -59,11 +62,11 @@ function fromClaude() {
 
 function fromCodex() {
   const real = (p) => { try { return realpathSync(p); } catch { return p; } };
-  const here = real(cwd);
+  const mine = new Set(folders.map(real));
   const files = walk(arg('codex-dir', join(homedir(), '.codex', 'sessions'))).filter((f) => {
     const meta = readFileSync(f, 'utf8').split('\n', 5).map((l) => { try { return JSON.parse(l); } catch { return null; } })
       .find((e) => e?.payload?.cwd);
-    return meta && real(meta.payload.cwd) === here;
+    return meta && mine.has(real(meta.payload.cwd));
   });
   const chosen = pickFiles(files);
   if (!chosen.length) return null;

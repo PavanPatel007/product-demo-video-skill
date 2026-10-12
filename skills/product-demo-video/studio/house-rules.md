@@ -1,5 +1,11 @@
 # Product demo studio rules
 
+## Files
+- This folder is the workspace; all work stays here. The user's folder (`root` in `.pdv.json`)
+  receives only the final MP4s, named `<product>-<format>.mp4`. Never write anything else there.
+- Keys come from `~/.config/product-demo-video/.env` or the user's folder `.env`; never copy
+  them into this folder.
+
 ## Render contract
 - Every video is a pure function of time: `window.seek(t)` in `index.html` paints frame t.
 - No CSS transitions, no setTimeout, no requestAnimationFrame in render mode, no state carried

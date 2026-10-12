@@ -50,7 +50,7 @@ Use the real end times from `vo_timing.json` when timing on-screen beats.
 ## 4. Mix
 
 ```bash
-./mix.sh out/silent.mp4 deliver/final.mp4 audio/music.wav out/sfx.wav --voice audio/voice.wav
+./mix.sh out/silent.mp4 out/final.mp4 audio/music.wav out/sfx.wav --voice audio/voice.wav
 ```
 
 Music ducks under the voice via sidechain compression; the result is normalized to -14 LUFS.

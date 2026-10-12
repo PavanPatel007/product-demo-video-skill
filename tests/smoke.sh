@@ -7,7 +7,7 @@ set -euo pipefail
 repo="$(cd "$(dirname "$0")/.." && pwd)"
 studio="$repo/skills/product-demo-video/studio"
 fx="$repo/tests/fixtures"
-tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+tmp="$(mktemp -d)"; pdv="$(mktemp -d)"; trap 'rm -rf "$tmp" "$pdv"' EXIT
 pass=0
 ok() { pass=$((pass + 1)); echo "  ✓ $*"; }
 fail() { echo "  ✗ $*"; exit 1; }
@@ -30,7 +30,7 @@ ok "studio copied, deps installed"
 step "doctor"
 ELEVENLABS_API_KEY= node doctor.mjs >doctor.txt || { cat doctor.txt; fail "doctor reports a missing required tool"; }
 awk '/Voiceover providers/{getline; print; exit}' doctor.txt | grep -q "ElevenLabs (recommended)" || fail "ElevenLabs not listed first"
-grep -q "add ELEVENLABS_API_KEY to .env" doctor.txt || fail "missing key not explained by name"
+grep -q "add ELEVENLABS_API_KEY to ~/.config/product-demo-video/.env" doctor.txt || fail "missing key not explained by name"
 ! grep -q "sk-\|xi-" doctor.txt || fail "doctor printed something that looks like a key"
 ok "toolchain ready, voice providers listed with ElevenLabs first"
 
@@ -141,6 +141,26 @@ ok "manual dashboard numbers: 1M in / 100k out / 2M cache read = \$6.40 on Opus 
 r=$(HOME="$tmp/nohome" node cost-report.mjs --seconds 10 --source claude || true)
 echo "$r" | grep -q "none found" || fail "no-log case should ask for dashboard numbers"
 ok "no logs → asks for usage-page numbers"
+
+step "workspace (user's folder gets only the MP4)"
+root="$tmp/user-folder"; mkdir -p "$root"
+echo "ELEVENLABS_API_KEY=smoke-not-a-key" >"$root/.env"
+ln -s "$(cd node_modules && pwd -P)" "$pdv/node_modules"
+w=$(cd "$root" && PDV_HOME="$pdv" node "$studio/workspace.mjs" init "Smoke Test")
+work=$(echo "$w" | sed -n 's/^WORK=\([^ ]*\).*/\1/p')
+[ "$work" = "$pdv/projects/smoke-test" ] && [ -s "$work/index.html" ] && [ -s "$work/.pdv.json" ] || { echo "$w"; fail "init didn't create the workspace in PDV_HOME"; }
+[ "$(ls -A "$root")" = ".env" ] || fail "init wrote into the user's folder: $(ls -A "$root")"
+(cd "$work" && ELEVENLABS_API_KEY= node doctor.mjs) | grep "ElevenLabs" | grep -q "ready" || fail "doctor didn't read the key from the user's folder .env"
+(cd "$work" && node doctor.mjs) | grep -q "smoke-not-a-key" && fail "doctor printed a key value"
+(cd "$work" && node render.mjs --w 960 --h 540 --stills 1 >/dev/null) && [ -s "$work/out/stills/contact.png" ] || fail "render in the workspace can't find the shared Playwright"
+cp out/final.mp4 "$work/out/final_16x9.mp4" && cp out/final.mp4 "$root/smoke-test-16x9.mp4" && mkdir -p "$work/refs/x" "$work/out/check" && touch "$work/out/check/poster.png"
+(cd "$root" && PDV_HOME="$pdv" node "$studio/workspace.mjs" clean "Smoke Test") | grep -q "freed" || fail "clean printed nothing"
+[ ! -e "$work/out/final_16x9.mp4" ] && [ ! -e "$work/out/stills" ] && [ ! -e "$work/refs" ] || fail "clean left drafts behind"
+[ -s "$work/index.html" ] && [ -e "$work/out/check/poster.png" ] || fail "clean removed the source or review images"
+PDV_HOME="$pdv" node "$studio/workspace.mjs" list | grep -q "smoke-test" || fail "list doesn't show the workspace"
+PDV_HOME="$pdv" node "$studio/workspace.mjs" clean smoke-test --all >/dev/null && [ ! -e "$work" ] || fail "clean --all left the workspace"
+[ "$(ls -A "$root" | sort | tr '\n' ' ')" = ".env smoke-test-16x9.mp4 " ] || fail "user's folder has extra files: $(ls -A "$root")"
+ok "init in PDV_HOME, user's folder untouched, key from its .env, shared Playwright, clean keeps source, clean --all"
 
 echo
 echo "smoke test passed: $pass checks"

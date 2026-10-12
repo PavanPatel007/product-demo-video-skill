@@ -2,7 +2,7 @@
   "name": "product-demo-video",
   "displayName": "Product Demo Video",
   "description": "Turns a product URL into a launch or demo video rendered from code: real screenshots, one continuous take, 3D UI with a screen-studio camera, beat-synced sound, optional AI voiceover.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": {
     "name": "Pavan Patel",
     "url": "https://github.com/PavanPatel007"

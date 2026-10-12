@@ -51,17 +51,16 @@ Never block: if they continue, use the same workflow with no shortcuts.
 node SKILL_DIR/studio/doctor.mjs
 ```
 
-It checks node, ffmpeg, Playwright, and which voice API keys exist in `.env` or the environment
-(names only, never values). Run it from the project folder once Step 1 has created it; before
-that, run it from any folder just to read the voice providers. Fix missing tools yourself where
-you can (`npm i`, `npx playwright install chromium`); tell the user only what needs them
-(e.g. installing ffmpeg).
+It checks node, ffmpeg, Playwright, and which voice API keys exist (names only, never values) in
+the environment, `~/.config/product-demo-video/.env`, or a `.env` in the user's folder. Run it
+here just to read the voice providers; Step 1 runs it again in the workspace. Fix missing tools
+yourself where you can; tell the user only what needs them (e.g. installing ffmpeg).
 
 ## Step 0c: Intake (the minimal questions)
 
 Skip anything the user already answered. In plain text, ask only for what can't be multiple choice:
 > What's the product URL? Optional: the 3 features to show, one proof number, and the CTA.
-> If the app is behind a login: test credentials (I'll keep them in `.env` and only look, never change data).
+> If the app is behind a login: test credentials (add them to `.env`, I'll only look, never change data).
 
 Then ask these in one round (first option = recommended / default):
 
@@ -70,7 +69,7 @@ Then ask these in one round (first option = recommended / default):
 | `style` | What kind of demo? | Launch reel: hook, UI in action, 3 features, proof, CTA (Recommended) · Product walkthrough: real app screens, cursor and highlights · UI morph loop: one shape morphs through 8-12 real UI states · Flagship film, 45 s+ |
 | `length` | How long? | 20-30 s (Recommended) · 15 s · 45-60 s |
 | `format` | Which formats? | 16:9 for web and decks (Recommended for walkthroughs) · 9:16 first, then 1:1 and 16:9 (Recommended for social) · 9:16 only · 1:1 only |
-| `music` | Music? | Original track synthesized in code + UI sounds (Recommended) · I'll supply a track (`audio/track.wav`) · No music |
+| `music` | Music? | Original track synthesized in code + UI sounds (Recommended) · I'll supply a track (any audio file; copy it to `audio/track.wav` in the workspace) · No music |
 | `voice` | Add an AI voiceover? | built from doctor output, see below |
 | `look` | Which look? | Keynote continuous take in the product's brand: one unbroken shot, UI in 3D, flood and iris transitions (Recommended) · Kinetic launch: word slams, chapter labels, hard cuts on the beat · Match a reference video or X post I'll give you · Both brand and neutral house style: two versions |
 | `mascot` | Add a mascot character? | No (Recommended) · Yes: a simple box character that reacts on the beat (or describe yours) |
@@ -84,7 +83,8 @@ from the doctor output:
 5. Free local voice (macOS `say` / espeak), for drafts and timing only
 6. No voiceover (music and sound effects only)
 
-If they pick a provider without a key: tell them to add `KEY_NAME=...` to `.env` in the project
+If they pick a provider without a key: tell them to add `KEY_NAME=...` to
+`~/.config/product-demo-video/.env` (works for every future video) or to `.env` in their own
 folder (template: `SKILL_DIR/studio/env.example`). **Never ask them to paste a key in chat.**
 Offer to continue meanwhile with the free local voice for timing and swap the real voice in
 before the final render.
@@ -92,24 +92,26 @@ before the final render.
 If the user says "just go", use every default (no voiceover) and infer features, metric and CTA
 from the site.
 
-## Step 1: Studio setup
+## Step 1: Workspace
 
-Work in a dedicated project folder (e.g. `~/Projects/<product>-demo`), not the home directory.
+**The user's folder gets the final MP4s and nothing else.** Never create a project folder,
+`node_modules`, screenshots, drafts or config files there. All work happens in a workspace
+outside it, named after the product:
 
 ```bash
-cp -R SKILL_DIR/studio/. .
-cp house-rules.md AGENTS.md && cp house-rules.md CLAUDE.md
-cp env.example .env              # if it doesn't exist; user fills in only what they use
-printf '.env\n.auth.json\nnode_modules/\nout/\ndeliver/\n*.mp4\naudio/vo/\n' >> .gitignore
-chmod +x mix.sh check.sh
-mkdir -p assets/screens audio docs refs out
-npm i && npx playwright install chromium
-node doctor.mjs                  # must be all ✓ for required tools
+node SKILL_DIR/studio/workspace.mjs init <product>   # run from the user's folder; prints WORK and ROOT
+cd <WORK>                                            # every command below runs here
+node doctor.mjs                                      # must be all ✓ for required tools
 # only for a supplied music track:  pip install numpy librosa soundfile
 ```
 
-Follow `AGENTS.md` (the house rules) for everything below. Note the start time; you'll
-report total time at the end.
+`init` creates `~/.cache/product-demo-video/projects/<product>/` with the studio files, records the
+user's folder as ROOT in `.pdv.json`, and installs Playwright once for every future video. If the
+workspace already exists (a follow-up edit), it is reused as is. Remember ROOT: Step 8 copies the
+final MP4s there.
+
+Read `house-rules.md` in the workspace now and follow it for everything below. Note the start
+time; you'll report total time at the end.
 
 ## Step 2: Capture real assets
 
@@ -228,9 +230,11 @@ node render.mjs --verify                                              # same fra
 node render.mjs --w 1920 --h 1080 --out out/silent_16x9.mp4          # 60 fps, adaptive motion blur
 node render.mjs --cues sfx_cues.json                                  # window.CUES -> sfx_cues.json
 node sfx.mjs sfx_cues.json out/sfx.wav
-./mix.sh out/silent_16x9.mp4 deliver/final_16x9.mp4 audio/music.wav out/sfx.wav [--voice audio/voice.wav]
-./check.sh deliver/final_16x9.mp4 <seconds-of-fastest-action> [--loop]
+./mix.sh out/silent_16x9.mp4 out/final_16x9.mp4 audio/music.wav out/sfx.wav [--voice audio/voice.wav]
+./check.sh out/final_16x9.mp4 <seconds-of-fastest-action> [--loop]
 ```
+
+Drafts and finals stay in the workspace's `out/` until they pass every check below.
 
 `--verify` must pass before the first full render; a mismatch means state is carried between
 frames (a cache, a counter, an unseeded random). Motion blur is `--sub auto` by default: each frame
@@ -253,36 +257,46 @@ Confirm loudness: `ffmpeg -i final.mp4 -af ebur128 -f null - 2>&1 | tail -12` sh
 
 ## Step 8: Deliver and report cost
 
+Copy only the finished MP4s into ROOT, named `<product>-<format>.mp4` (`acme-16x9.mp4`,
+`acme-9x16.mp4`, `acme-house-16x9.mp4` for a second look). If a file with that name is already
+there from an earlier version, add `-v2`, `-v3` rather than overwrite it.
+
 ```bash
-node cost-report.mjs --video deliver/final_16x9.mp4
+cp out/final_16x9.mp4 "<ROOT>/<product>-16x9.mp4"
+node cost-report.mjs --video out/final_16x9.mp4
 ```
 
-It reads exact token usage from Claude Code or Codex session logs for this folder (newest
+It reads exact token usage from Claude Code or Codex session logs for the user's folder (newest
 session; `--all-sessions` for everything), adds the voice API cost from `audio/vo_usage.json`,
 prices it with `pricing.json`, and writes `out/cost_report.md`. If no log is found (Cursor and
 other IDEs don't expose usage to the agent), ask the user for the numbers on their usage page
 and re-run with `--model claude-opus-5-5 --input N --output N --cache-read N --cache-write N`.
 Only if they can't, use `--transcript <chat.jsonl>` and call the result a lower-bound estimate.
 
+Then free the space: `node workspace.mjs clean <product>` deletes drafts, renders and
+references, and keeps the film's source and the review images (a few MB) so follow-up edits
+("change the CTA", "make a 9:16") are a one-line change plus re-render.
+
 Report in this order:
-1. The final MP4 paths; embed `out/check/poster.png` and `out/check/contact.png` inline.
+1. The MP4 paths in ROOT; embed `out/check/poster.png` and `out/check/contact.png` inline.
 2. One line, filled from the report: **"This N-second video used X tokens and cost about $Y
    (Z per second of video), plus $V for the voiceover."** Mention if it's an estimate, and that
    subscription plans bill differently from API rates.
 3. Final critique scores and the 2-3 things you'd improve next.
-
-Keep the folder: follow-up edits are a one-line change plus re-render, and a second video for
-the same brand reuses the whole studio.
+4. One line: the source is kept in `<WORK>` for edits; `node SKILL_DIR/studio/workspace.mjs
+   clean <product> --all` removes it, and `workspace.mjs list` shows every workspace.
 
 ## Hard rules
 
+- The user's folder receives only the final MP4s. Everything else lives in the workspace.
 - Real product UI only. Never invent screens, features, metrics or testimonials.
 - No Math.random, timers, CSS transitions or carried state in render mode.
 - Banned: crossfades, blur-ins, glows, particles, 3D flips, holds over 1 s, centered title on
   gradient, everything fading in, corner labels/frame borders.
 - References give the grammar, never the content, logos or characters. Don't commit
   downloaded reference videos; link to the creator's post.
-- API keys and passwords only in `.env`; refer to them by variable name; never print them.
+- API keys and passwords only in `.env` (`~/.config/product-demo-video/.env` or the user's
+  folder); refer to them by variable name; never print them or copy them into the workspace.
 - Logged-in apps are read-only: navigate and screenshot, never change data.
 
 ## Additional resources
@@ -290,7 +304,7 @@ the same brand reuses the whole studio.
 - The Opus 5.5 style research (sources, measured numbers, grammar): [research.md](research.md)
 - Brief templates and the critique prompt: [briefs.md](briefs.md)
 - Voiceover providers, voices and script timing: [voiceover.md](voiceover.md)
-- Studio files copied into each project: `studio/` (render.mjs, lib/motion.js, lib/kit.js,
+- Studio files copied into each workspace by `workspace.mjs`: `studio/` (render.mjs, lib/motion.js, lib/kit.js,
   capture-*.mjs, ref.mjs, prep-footage.mjs, motion-audit.mjs, doctor.mjs, voiceover.mjs, music.mjs, sfx.mjs,
   beats.py, mix.sh, check.sh, cost-report.mjs, pricing.json, house-rules.md, index.html, env.example)
 - Method source: [How to build motion design studio with Opus 5.5](https://x.com/0xMovez/status/2104216919033192746)

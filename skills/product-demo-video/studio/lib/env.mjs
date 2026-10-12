@@ -1,15 +1,29 @@
-// Tiny .env loader (no dependency). process.env wins over .env.
+// Tiny .env loader (no dependency). Later sources win: ~/.config/product-demo-video/.env (keys for
+// every video), the user's folder's .env, the workspace's .env, then process.env.
 import { existsSync, readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 
-export function loadEnv(file = '.env') {
+// The workspace record written by workspace.mjs: { name, root } (root = the user's folder).
+export function workspace() {
+  try { return JSON.parse(readFileSync('.pdv.json', 'utf8')); } catch { return null; }
+}
+
+function parse(file) {
   const env = {};
-  if (existsSync(file)) {
+  if (file && existsSync(file)) {
     for (const line of readFileSync(file, 'utf8').split('\n')) {
       const m = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/);
       if (m) env[m[1]] = m[2].replace(/^(['"])(.*)\1$/, '$2');
     }
   }
-  return { ...env, ...Object.fromEntries(Object.entries(process.env).filter(([, v]) => v !== '')) };
+  return env;
+}
+
+export function loadEnv(file = '.env') {
+  const root = workspace()?.root;
+  const files = [join(homedir(), '.config', 'product-demo-video', '.env'), root && join(root, '.env'), file];
+  return Object.assign({}, ...files.map(parse), Object.fromEntries(Object.entries(process.env).filter(([, v]) => v !== '')));
 }
 
 export const arg = (k, d) => {

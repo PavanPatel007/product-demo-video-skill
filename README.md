@@ -96,6 +96,23 @@ How a run goes:
 7. **Cost report.** For example: *"This 56-second video used 3.1M tokens and cost about
    $9.40, plus $0.18 for the voiceover."*
 
+### Where files go
+
+Only the finished videos land in the folder you run your agent from, for example
+`acme-16x9.mp4` and `acme-9x16.mp4`. No project folder, no `node_modules`, no drafts.
+
+The work happens in `~/.cache/product-demo-video/projects/<product>/` (set `PDV_HOME` to move
+it). Drafts are deleted after delivery; the film's source (a few MB) stays, so *"change the CTA"*
+or *"make a 9:16 version"* later is a quick re-render. Playwright is installed there once and
+shared by every video.
+
+```bash
+node ~/.claude/skills/product-demo-video/studio/workspace.mjs list            # every workspace and its size
+node ~/.claude/skills/product-demo-video/studio/workspace.mjs clean acme --all # remove one completely
+```
+
+(Use your agent's skills folder in place of `~/.claude/skills` if it's different.)
+
 ## The look
 
 The default look comes from studying the most-shared Opus 5.5 videos frame by frame (for
@@ -124,7 +141,8 @@ kinetic showreels, UI morph loops and 45 s+ flagship films
 
 ## Voiceover keys
 
-Put keys in `.env` in the video project folder, never in chat. See
+Put keys in `~/.config/product-demo-video/.env` once (every video uses them), or in a `.env` in
+the folder you run your agent from. Never paste them in chat. See
 [`env.example`](skills/product-demo-video/studio/env.example).
 
 | Provider | Key |
@@ -139,7 +157,7 @@ Put keys in `.env` in the video project folder, never in chat. See
 
 `cost-report.mjs` gets token counts from the first source it finds:
 
-- **Claude Code and Codex:** exact counts from their local session logs for the project folder.
+- **Claude Code and Codex:** exact counts from their local session logs for your folder.
 - **Cursor and other IDEs:** these don't expose usage to the agent, so the skill asks you for
   the numbers from your usage page.
 - **Last resort:** a clearly labeled lower-bound estimate.
