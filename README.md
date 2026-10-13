@@ -3,7 +3,8 @@
 An agent skill that turns a product URL into a launch or demo video, rendered from code.
 Your AI agent captures the real product, plans shots on a beat grid, animates them in the
 style of the most-shared Claude Opus 5.5 videos, critiques its own frames until every score is
-8+, and renders 16:9, 9:16 and 1:1 MP4s with music, sound effects and an optional voiceover.
+8+, and renders 16:9, 9:16 and 1:1 MP4s with music, sound effects and an optional voiceover
+with captions.
 
 ![The built-in 11-second template (placeholder UI) before your product goes in](docs/media/template.gif)
 
@@ -190,11 +191,12 @@ skills/product-demo-video/
     lib/motion.js     springs, track(), glide curve, keyed tables, seeded rng
     lib/kit.js        type, UI cards, 3D plane, camera paths, flood, iris, glass, goo, footage
     render.mjs        frames → ffmpeg, adaptive motion blur, --stills, --verify, --cues
-    motion-audit.mjs  holds, single-frame pops, dead seconds, loop seam, sound sync
+    motion-audit.mjs  holds, single-frame pops, dead seconds, flashes, loop seam, sound sync
     ref.mjs           analyze a reference video or X post
     prep-footage.mjs  real video → frame sequence the renderer can seek exactly
     capture-*.mjs     site/app/component screenshots, brand.json
     voiceover.mjs     ElevenLabs / OpenAI / Google / Azure / local TTS
+    captions.mjs      .srt from the voiceover timing, muxed into the MP4 as a subtitle track
     music.mjs sfx.mjs synthesized score and UI sounds, or your SFX files placed by their peak
     mix.sh check.sh   ducking + -14 LUFS loudness; contact sheet, phone test, motion audit
     cost-report.mjs   tokens and $ per video

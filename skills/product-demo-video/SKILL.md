@@ -8,7 +8,7 @@ description: >-
   grid, builds a deterministic seek(t) canvas animation in the viral Opus 5.5 style (one
   continuous take, mask-rise type, 3D UI with screen-studio camera, flood and iris transitions,
   count-ups, mascot), analyzes reference videos or X posts, critiques its own frames and motion
-  until every score is 8+, renders MP4s in 16:9, 9:16 and 1:1 with music, SFX and voice, and
+  until every score is 8+, renders MP4s in 16:9, 9:16 and 1:1 with music, SFX, voice and captions, and
   ends with a token and cost report. Use when the user asks for a product demo video, launch
   video, app promo, walkthrough video, product reel, motion ad, or animated explainer.
 ---
@@ -69,7 +69,7 @@ Then ask these in one round (first option = recommended / default):
 
 | id | Prompt | Options |
 |----|--------|---------|
-| `style` | What kind of demo? | Launch reel: hook, UI in action, 3 features, proof, CTA (Recommended) · Product walkthrough: real app screens, cursor and highlights · UI morph loop: one shape morphs through 8-12 real UI states · Flagship film, 45 s+ |
+| `style` | What kind of demo? | Launch reel: hook, UI in action, 3 features, proof, CTA (Recommended) · Product walkthrough: the real app in a phone or Mac, one chapter per feature, callouts · Story film: a motif or character carries the product from problem to payoff · Explainer: how it works, one idea at a time, with voiceover · UI morph loop: one shape morphs through 8-12 real UI states · Flagship film, 45 s+ |
 | `length` | How long? | 20-30 s (Recommended) · 15 s · 45-60 s |
 | `format` | Which formats? | 16:9 for web and decks (Recommended for walkthroughs) · 9:16 first, then 1:1 and 16:9 (Recommended for social) · 9:16 only · 1:1 only |
 | `music` | Music? | Original track synthesized in code + UI sounds (Recommended) · I'll supply a track (any audio file; copy it to `audio/track.wav` in the workspace) · No music |
@@ -115,7 +115,8 @@ user's folder as ROOT in `.pdv.json`, and installs Playwright (the driver) once 
 video; it drives Playwright's headless shell if present, else the Chrome or Edge already installed, and
 downloads Chromium only if none is. Run the studio scripts with full permissions (outside any agent
 sandbox): a sandboxed browser can't start, and the scripts say so. If the
-workspace already exists (a follow-up edit), it is reused as is. Remember ROOT: Step 8 copies the
+workspace already exists (a follow-up edit), it is reused: the film (`index.html`), assets, audio
+and docs stay as they are, and the studio tools, kit and house rules are refreshed to the current skill. Remember ROOT: Step 8 copies the
 final MP4s there.
 
 Read `house-rules.md` in the workspace now and follow it for everything below. Note the start
@@ -192,15 +193,24 @@ Capture gotchas:
    default look; every rule below assumes it.
 2. Reference (only for "Match a reference"): `node ref.mjs <x.com status URL | .mp4 URL | file>`.
    It downloads the video (and the post text, which often holds the creator's full prompt),
-   and writes `refs/<name>/sheet.png` (2 frames per second), cuts, shot lengths, palette,
-   loudness and a motion audit to `refs/<name>/analysis.md`. Open the sheet and look at it.
-   No reference but want one? Browse [whatships.com](https://whatships.com) (a library of Opus 5.5
-   videos linking to the original posts) and pick one whose grammar fits the product.
-3. Pick the template in [briefs.md](briefs.md): E keynote continuous take (the default `look`),
-   F agent / chat product (the user types a request, the product does the work), G inside the
-   period (looping; products that work while the user is away), A kinetic launch, B UI morph
-   loop, D flagship 45 s+; walkthroughs use E with real app screens. Append C if there's a
-   voiceover or mascot. Fill it and save `docs/brief.md`.
+   and writes `refs/<name>/sheet.png` (2 frames per second), 12 fps motion strips of the opening
+   and the busiest seconds (`refs/<name>/moves/`), cuts, shot lengths, palette, loudness and a
+   motion audit to `refs/<name>/analysis.md`. Open the sheet and every strip, and look at them:
+   the strips show how things move (what blurs, what carries across), which the sheet can't.
+   It also takes a [prompt-motion.com](https://prompt-motion.com) entry link and then saves the
+   creator's full prompt to `refs/<name>/prompt.md`: read it for the techniques, timings and bans.
+   No reference but want one? `node gallery.mjs [words] --tag "Product UI"` (or `Phone`,
+   `Kinetic type`, `Charts`) searches prompt-motion.com; [whatships.com](https://whatships.com) is a
+   second library. Pick one whose grammar fits the product.
+3. Write the story device first (top of [briefs.md](briefs.md)): logline, motif, world, hero
+   UI moments, pace, carrier object, payoff. Then pick the template: E keynote continuous take
+   (the default `look`), I device chapter walkthrough (every walkthrough), J story film (story
+   `style`, or a mascot), K object chain launch (launch reels with one strong object or number),
+   L keynote sting (10-15 s teaser, cuts at peak blur), F agent / chat product (the user types a request, the product does the work), G
+   inside the period (looping; products that work while the user is away), H explainer (how it
+   works), A kinetic launch, B UI morph loop, D flagship 45 s+. Append C if there's a voiceover
+   or mascot. Fill it and save `docs/brief.md`; its first line says who watches, what they
+   believe before, and what they should believe or do after.
 4. `docs/style_guide.md`: from `refs/*/analysis.md` if there's a reference, otherwise from
    `assets/brand.json`. Palette in hex, one display face, one UI face, one accent.
    For "Both", define the second look as `THEMES.house` in `index.html`.
@@ -215,7 +225,8 @@ Capture gotchas:
 Write `docs/shotlist.md` on the beat grid. Every shot: beat range, what's on screen (naming the
 asset file), how it is made out of the previous shot (the transition), camera move, on-screen
 text, voice line (if any), SFX cue. Rules: hook in the first 2 s, a change on every beat, no hold
-over 1 s, one proof metric, logo + CTA at the end.
+over 1 s (2 s for explainers), one proof metric, logo + CTA at the end, at most 8 words per line
+on screen.
 
 Show the shot list compactly (and the voice name, if any) and ask for OK. Apply changes, then
 continue without stopping until delivery.
@@ -250,6 +261,30 @@ The kit (`lib/kit.js`) does the Opus 5.5 grammar; use it instead of writing effe
   frame sequence; `FOOTAGE = {wall: 'assets/footage/wall'}`; `footage('wall', localT, x, y, w)`.
   Keep `window.seek = seekWith(draw)` so frames load before capture.
 - Character: `mascot(x, y, size, t, {look, squash})` (`?mascot=1` in the template).
+- World: `ambient(t, {base, pools})` (soft light pools; change colours per chapter), `gobo(t)`
+  (window light on a surface; warm `tint` for dusk), `stars(t)` (night, story only).
+- Lens: `depthBlur(depth, focus)` with `blurred()` for rack focus, `focusIn(text, ...)` (words
+  pull into focus, `out` to leave).
+- Walkthrough: `chapterBlock(x, y, t, {kicker, light, bold, body, out})` (dims, then leaves),
+  `callout(text, ax, ay, lx, ly, t)` (hairline label on the UI part), `laptop(...)` beside
+  `phone(...)`, `idleFloat(t)` so reading holds never freeze.
+- The product moving itself: `stackY(t, orders, heights)` (FLIP reorder / insert),
+  `typingDots`, `highlight` (words the product understood), `flyTag` (a request word flies into
+  the result field it filled), `checkDot` (task checkbox, `pulse` to invite a tap),
+  `whip(p, drawA, drawB)` between chapters (the renderer adds the streak).
+- Entrances, exits and cuts: `arrive(t, dur)` / `depart(t, dur)` (lib/motion.js) so no shot starts
+  or ends still, `cutBlur(t, tCut)` (cut at peak blur), `smear`, `zoomSmear` (end wordmark arriving
+  huge), `matchFrame(tile, p)` (full bleed ↔ tile, radius to 0). `cursorPath` returns `hover` and
+  `rot`: pass them as `cursor(x, y, press, a, { hover, rot })`.
+- Object chains: `textRect` (a word's box, to morph it into the next object), `bendToRing`,
+  `revealFrom` (a word opening from one letter), `orbit`, `layouts` + `layoutMorph` (grid → ring
+  → point), `glint`.
+- Cause → effect and data: `connector`, `cardSwap` (status card ticking), `scan`, `selectionBox`,
+  `odometer`, `areaChart` (draws, glowing head, scrub tooltip), `pushSwap` (stat replaces stat),
+  `slider`, `rotateWord` (one slot in a fixed sentence), `karaoke` (voice-timed caption).
+- Surfaces and accents: `glass(..., { refract })`, `glassText` (frosted title, `clip` to the
+  card), `gradientText`, `bandWipe`, `reflection`, `marquee` (integrations, logos), `reel`,
+  `stepIndex` + `stepTimes` (image runs on 16th notes, one click each).
 
 Use `sp(t, 'snappy'|'base'|'heavy'|'playful')` for entrances and `track()` for anything with
 several targets (cursor). Lay out in design units with `DW`, `DH`, `PORTRAIT`, `SQUARE`
@@ -270,7 +305,8 @@ node render.mjs --w 1080 --h 1920 --stills 1,4,8                       # spot-ch
 ```
 
 Open `out/stills/contact.png` with your file/image reading tool and actually look at it. Run the
-"Critique pass" from [briefs.md](briefs.md), fix the 3 worst problems, log scores in
+"Critique pass" from [briefs.md](briefs.md), including its slop check (with a reference, put
+its `sheet.png` beside your contact sheet), fix the 3 worst problems, log scores in
 `docs/review_log.md`, re-render stills. Stop only when every score is 8+ and at least 3 rounds
 are done. For 45 s+ films, render an animatic first: `--w 960 --h 540 --sub 1`.
 
@@ -284,7 +320,8 @@ node render.mjs --w 1920 --h 1080 --out out/silent_16x9.mp4          # 60 fps, a
 node render.mjs --cues sfx_cues.json                                  # window.CUES -> sfx_cues.json
 node sfx.mjs sfx_cues.json out/sfx.wav
 ./mix.sh out/silent_16x9.mp4 out/final_16x9.mp4 audio/music.wav out/sfx.wav [--voice audio/voice.wav]
-./check.sh out/final_16x9.mp4 <seconds-of-fastest-action> [--loop]
+node captions.mjs --mux out/final_16x9.mp4                            # only with a voiceover
+./check.sh out/final_16x9.mp4 <seconds-of-fastest-action> [--loop] [--max-hold 2 for explainers]
 ```
 
 Drafts and finals stay in the workspace's `out/` until they pass every check below.
@@ -299,8 +336,12 @@ moves get as many samples as they need, so there are no ghost copies. `--sub N` 
 Grab the fastest frame from the final MP4 at full resolution (`ffmpeg -ss <t> -i final.mp4
 -frames:v 1 out/f.png`) and look at it 1:1: edges should streak, never step.
 
+After the full render, if you can start a separate agent or subagent, have a fresh one that didn't
+build the film run the critique pass on `out/check/contact.png` (briefs.md says how). Fix what it finds.
+
 `check.sh` also runs `motion-audit.mjs`, which prints motion per second and lists every hold
-over 1 s, every single-frame pop, dead seconds, (with `--loop`) the seam, and (when
+over 1 s, every single-frame pop, dead seconds, more than 3 flashes in a second (a seizure
+risk; slow the floods or cuts), (with `--loop`) the seam, and (when
 `sfx_cues.json` exists) sound sync: visible events with no sound within 0.12 s, and sounds with
 nothing moving. Fix every hold, every pop that isn't a deliberate downbeat cut, and every sync miss. Then open `out/check/contact.png`,
 `strip.png` and `phone.png` and run the critique pass on the real render; fix and re-render
@@ -311,11 +352,13 @@ Confirm loudness: `ffmpeg -i final.mp4 -af ebur128 -f null - 2>&1 | tail -12` sh
 ## Step 8: Deliver and report cost
 
 Copy only the finished MP4s into ROOT, named `<product>-<format>.mp4` (`acme-16x9.mp4`,
-`acme-9x16.mp4`, `acme-house-16x9.mp4` for a second look). If a file with that name is already
-there from an earlier version, add `-v2`, `-v3` rather than overwrite it.
+`acme-9x16.mp4`, `acme-house-16x9.mp4` for a second look), plus `<product>.srt` when there's a
+voiceover. If a file with that name is already there from an earlier version, add `-v2`, `-v3`
+rather than overwrite it.
 
 ```bash
 cp out/final_16x9.mp4 "<ROOT>/<product>-16x9.mp4"
+cp out/captions.srt "<ROOT>/<product>.srt"                            # only with a voiceover
 node cost-report.mjs --video out/final_16x9.mp4
 ```
 
@@ -335,17 +378,23 @@ Report in this order:
 2. One line, filled from the report: **"This N-second video used X tokens and cost about $Y
    (Z per second of video), plus $V for the voiceover."** Mention if it's an estimate, and that
    subscription plans bill differently from API rates.
-3. Final critique scores and the 2-3 things you'd improve next.
+3. Final critique scores and the 2-3 things you'd improve next. Name any check you couldn't
+   run (no voice key, no device, a step skipped) rather than leaving it out.
 4. One line: the source is kept in `<WORK>` for edits; `node SKILL_DIR/studio/workspace.mjs
    clean <product> --all` removes it, and `workspace.mjs list` shows every workspace.
 
 ## Hard rules
 
-- The user's folder receives only the final MP4s. Everything else lives in the workspace.
+- The user's folder receives only the final MP4s (and the `.srt` with a voiceover). Everything
+  else lives in the workspace.
 - Real product UI only. Never invent screens, features, metrics or testimonials.
 - No Math.random, timers, CSS transitions or carried state in render mode.
-- Banned: crossfades, blur-ins, glows, particles, 3D flips, holds over 1 s, centered title on
-  gradient, everything fading in, corner labels/frame borders.
+- Banned: crossfades, whole-frame blur-ins (lens focus pulls are fine), glows, decorative
+  particles, 3D flips, dead holds over 1 s (living reading holds up to 1.8 s, 2 s in
+  explainers), centered title on gradient, everything fading in, corner labels/frame borders,
+  numbered HUD chapters outside a kinetic showreel, flat voids, unreadable full-page UI, more
+  than 3 flashes in a second.
+- No film without a story device: a motif that opens it and returns, and a payoff line.
 - References give the grammar, never the content, logos or characters. Don't commit
   downloaded reference videos; link to the creator's post.
 - API keys and passwords only in `.env` (`~/.config/product-demo-video/.env` or the user's
@@ -361,6 +410,6 @@ Report in this order:
 - Brief templates and the critique prompt: [briefs.md](briefs.md)
 - Voiceover providers, voices and script timing: [voiceover.md](voiceover.md)
 - Studio files copied into each workspace by `workspace.mjs`: `studio/` (render.mjs, lib/motion.js, lib/kit.js,
-  lib/browser.mjs, lib/dom-extract.js, capture-site/app/dom/parts/mobile.mjs, scan-code.mjs, ref.mjs, prep-footage.mjs, motion-audit.mjs, doctor.mjs, voiceover.mjs, music.mjs, sfx.mjs,
+  lib/browser.mjs, lib/dom-extract.js, lib/gallery.mjs, capture-site/app/dom/parts/mobile.mjs, scan-code.mjs, ref.mjs, gallery.mjs, prep-footage.mjs, motion-audit.mjs, doctor.mjs, voiceover.mjs, captions.mjs, music.mjs, sfx.mjs,
   beats.py, mix.sh, check.sh, cost-report.mjs, pricing.json, house-rules.md, index.html, env.example)
 - Method source: [How to build motion design studio with Opus 5.5](https://x.com/0xMovez/status/2104216919033192746)

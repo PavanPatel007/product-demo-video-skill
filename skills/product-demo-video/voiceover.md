@@ -54,3 +54,13 @@ Use the real end times from `vo_timing.json` when timing on-screen beats.
 ```
 
 Music ducks under the voice via sidechain compression; the result is normalized to -14 LUFS.
+
+## 5. Captions
+
+```bash
+node captions.mjs --mux out/final_16x9.mp4      # once per format; captions.srt is written each time
+```
+
+Writes `out/captions.srt` from the real line times in `vo_timing.json` (at most 2 lines of 42
+characters per cue) and adds it to the MP4 as a subtitle track players can switch on. Most
+social video plays muted, so deliver the `.srt` too: X, LinkedIn and YouTube take it as an upload.

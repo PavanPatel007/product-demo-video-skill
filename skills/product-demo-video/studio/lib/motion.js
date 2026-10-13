@@ -65,6 +65,14 @@
   const GLIDE = bezier(0.45, 0, 0.15, 1);
   const glide = (t, dur = 0.8) => GLIDE(clamp(t / dur));
 
+  // Shots enter already moving and leave accelerating (notdwd's frame-by-frame remake of a keynote
+  // sting, research.md): arrive() is a hard expo ease-out (most of the distance in the first few
+  // frames, then a long settle, cubic-bezier(.16,1,.3,1)); depart() starts slow and accelerates
+  // into the cut or the next shot, so no shot ever begins or ends on a still frame.
+  const ARRIVE = bezier(0.16, 1, 0.3, 1), DEPART = bezier(0.7, 0, 0.84, 0);
+  const arrive = (t, dur = 0.6) => ARRIVE(clamp(t / dur));
+  const depart = (t, dur = 0.4) => DEPART(clamp(t / dur));
+
   // Piecewise value from a table of [time, value] keys, each segment eased over `dur` seconds
   // starting at its key. Retiming a whole sequence is one edit to the table.
   function keyed(t, keys, { dur = 0.8, ease = GLIDE } = {}) {
@@ -95,5 +103,5 @@
   const frameLocal = (t) => (root.__ft == null || root.__t == null ? t : t - (root.__t - root.__ft));
 
   Object.assign(root, { clamp, lerp, spring, SPRINGS, sp, track, indicator, swapAlpha, loopT, rng,
-    bezier, GLIDE, glide, keyed, logLerp, byArea, frameLocal });
+    bezier, GLIDE, glide, ARRIVE, DEPART, arrive, depart, keyed, logLerp, byArea, frameLocal });
 })(globalThis);

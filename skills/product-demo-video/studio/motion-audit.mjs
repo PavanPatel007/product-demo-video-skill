@@ -5,6 +5,8 @@
 //            footage at half the frame rate, which shows as pops on alternate frames)
 //   seam   : with --loop, how different the last frame is from the first
 //   sync   : with --cues, visible events with no sound and sounds with nothing moving
+//   flashes: more than 3 flashes in any second (WCAG 2.3.1, seizure risk), from whole-frame
+//            luminance, so floods and colour-field slams count but a small blinking dot does not
 // Prints a per-second motion bar and writes <out>/motion.txt + motion.json.
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
@@ -38,6 +40,33 @@ function soundSync(d, fps, cues, { win = 0.12 } = {}) {
     return Math.max(0, ...d.slice(i0, i1)) < 0.005;     // not a single pixel changed (a typed key still counts)
   });
   return { onsets: onsets.length, silent: silent.map((t) => +t.toFixed(2)), blind: blind.map((t) => +t.toFixed(2)) };
+}
+
+// A flash is a pair of opposing swings in relative luminance of 10% or more where the darker
+// side is below 0.8. Swings are the turns of a zigzag over the mean luminance per frame.
+function flashes(file, fps, outDir) {
+  const tmp = join(outDir, '.luma.txt');
+  ff(['-i', file, '-vf', `scale=240:-2,signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=${tmp}`, '-f', 'null', '-']);
+  const L = [...readFileSync(tmp, 'utf8').matchAll(/YAVG=([\d.]+)/g)].map((m) => Math.min(1, Math.max(0, (Number(m[1]) - 16) / 219)) ** 2.2);
+  rmSync(tmp, { force: true });
+  const swings = [];
+  let dir = 0, from = L[0], ext = L[0];
+  for (let i = 1; i < L.length; i++) {
+    const v = L[i];
+    const turn = dir === 0 ? Math.abs(v - from) >= 0.1 : dir > 0 ? ext - v >= 0.1 : v - ext >= 0.1;
+    if (dir !== 0 && (dir > 0 ? v > ext : v < ext)) ext = v;
+    if (!turn) continue;
+    if (dir !== 0) from = ext;
+    if (Math.min(from, v) < 0.8) swings.push(i / fps);
+    dir = v > from ? 1 : -1; ext = v;
+  }
+  const bad = [];
+  for (let a = 0; a < swings.length; a++) {
+    let b = a; while (b + 1 < swings.length && swings[b + 1] - swings[a] < 1) b++;
+    const n = Math.floor((b - a + 1) / 2);
+    if (n > 3 && !(bad.length && swings[a] - bad[bad.length - 1].t < 1)) bad.push({ t: +swings[a].toFixed(2), flashes: n });
+  }
+  return bad;
 }
 
 export function audit(file, { maxHold = 1, endHold = 2.5, loop = false, outDir = 'out/check', quiet = 0.08, popMin = 6, cues = null } = {}) {
@@ -86,7 +115,8 @@ export function audit(file, { maxHold = 1, endHold = 2.5, loop = false, outDir =
   }
 
   const sync = cues ? soundSync(d, fps, cues) : null;
-  const report = { file, fps, dur: +dur.toFixed(2), holds, pops, deadSeconds: dead, energy: energy.map((e) => +e.toFixed(2)), seam, sync };
+  const flash = flashes(file, fps, outDir);
+  const report = { file, fps, dur: +dur.toFixed(2), holds, pops, deadSeconds: dead, energy: energy.map((e) => +e.toFixed(2)), seam, sync, flashes: flash };
   const lines = [
     `motion audit: ${file} (${dur.toFixed(1)} s, ${Math.round(fps)} fps)`,
     `motion per second: ${bar}`,
@@ -95,6 +125,8 @@ export function audit(file, { maxHold = 1, endHold = 2.5, loop = false, outDir =
     pops.length ? `POPS / hard cuts (single-frame jumps): ${pops.length}` : 'pops: none',
     ...pops.slice(0, 20).map((p) => `  ${p.t}s  ${p.diff}% of pixels jump in one frame`),
     dead.length ? `dead seconds (almost no motion): ${dead.join(', ')}` : 'dead seconds: none',
+    flash.length ? 'FLASHES (more than 3 in one second, a seizure risk: slow the floods or cuts down):' : 'flashes: none over 3 per second',
+    ...flash.map((f) => `  ${f.t}s  ${f.flashes} flashes in the next second`),
     ...(seam === null ? [] : [`loop seam: ${seam.toFixed(2)}% of pixels differ ${seam < 1 ? '(seamless)' : '(VISIBLE JUMP: make the last frame equal the first)'}`]),
     ...(sync === null ? [] : [
       `sound sync: ${sync.onsets} visible events, ${cues.length} cues`,
@@ -115,5 +147,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.ar
   const { report, text } = audit(file, { maxHold: Number(a('max-hold', 1)), endHold: Number(a('end-hold', 2.5)),
     loop: process.argv.includes('--loop'), outDir: a('out', 'out/check'), cues });
   console.log(text);
-  process.exitCode = report.holds.length || (report.seam !== null && report.seam >= 1) ? 3 : 0;
+  process.exitCode = report.holds.length || report.flashes.length || (report.seam !== null && report.seam >= 1) ? 3 : 0;
 }
