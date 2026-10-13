@@ -1,0 +1,212 @@
+<!doctype html>
+<meta charset="utf-8">
+<style>
+/* Declare captured brand fonts here, e.g.
+@font-face { font-family: 'Brand Sans'; src: url(assets/fonts/brand-sans.woff2) format('woff2'); font-weight: 100 900; } */
+html,body{margin:0;background:#000}canvas{display:block;max-width:100vw;max-height:100vh}
+</style>
+<canvas id="c"></canvas>
+<script src="lib/motion.js"></script>
+<script src="lib/kit.js"></script>
+<script>
+const Q = new URLSearchParams(location.search);
+const W = +Q.get('w') || 1920, H = +Q.get('h') || 1080, DUR = 20;
+const c = document.getElementById('c'); c.width = W; c.height = H;
+let g = c.getContext('2d');   // let: goo() and withCtx() redirect kit drawing into offscreen layers
+// Design space: the short side is always 1080 units, so one layout scales to any resolution.
+const S = Math.min(W, H) / 1080, DW = W / S, DH = H / S;
+const PORTRAIT = H > W * 1.1, SQUARE = !PORTRAIT && W < H * 1.1, WIDE = !PORTRAIT && !SQUARE;
+
+// Beat grid: music.mjs starts on beat 0. For a supplied track set BPM and OFFSET from beats.json.
+const BPM = 120, OFFSET = 0, BEAT = 60 / BPM;
+const B = (n) => OFFSET + n * BEAT;
+window.BPM = BPM; window.OFFSET = OFFSET;
+
+// One timeline, several looks: render with --query theme=house
+const THEMES = {
+  brand: {   // fill from assets/brand.json (captured colors + fonts)
+    bg: '#F4F3EF', fg: '#0B0B0A', muted: '#55524C', faint: '#A19D94', accent: '#FF4F1F', onAccent: '#FFFFFF',
+    band: '#E9E6DF', panel: '#FFFFFF', shadow: 'rgba(20,18,14,0.16)', shadowBlur: 60,
+    display: 'Inter, system-ui, sans-serif', dw: 800, track: -0.04, ui: 'Inter, system-ui, sans-serif', uw: 500,
+    mono: 'ui-monospace, Menlo, monospace', mw: 500, mtrack: 0.12, grid: false, wordBand: false, cursor: '#0B0B0A',
+  },
+  house: {   // neutral dark look that works for any product
+    bg: '#0E0E0D', fg: '#F2F0EA', muted: '#A8A59C', faint: '#5E5B55', accent: '#3DDC84', onAccent: '#0B0B0A',
+    band: '#1F1E1B', panel: '#1A1917', shadow: 'rgba(0,0,0,0.65)', shadowBlur: 80,
+    display: 'Inter, system-ui, sans-serif', dw: 800, track: -0.04, ui: 'Inter, system-ui, sans-serif', uw: 600,
+    mono: 'ui-monospace, Menlo, monospace', mw: 600, mtrack: 0.14, grid: true, wordBand: false, cursor: '#FFFFFF',
+  },
+};
+const T = THEMES[Q.get('theme')] || THEMES.brand;
+const FONTS = ['800 40px Inter', '600 40px Inter', '500 40px Inter'];
+
+// Real product assets only (captured into ./assets). Missing files fail the render loudly.
+const ASSETS = {
+  // logo: 'assets/logo.svg',
+  // dash: 'assets/screens/app_dashboard.png',
+};
+// Real screen recordings: node prep-footage.mjs in.mov demo -> FOOTAGE = { demo: 'assets/footage/demo' }
+const FOOTAGE = {};
+const IMG = {};
+window.ready = Promise.all([
+  loadFootage(FOOTAGE),
+  ...FONTS.map((f) => document.fonts.load(f)),
+  ...Object.entries(ASSETS).map(([k, src]) => new Promise((res, rej) => {
+    const i = new Image();
+    i.onload = () => { IMG[k] = i; res(); };
+    i.onerror = () => rej(new Error('missing asset ' + src));
+    i.src = src;
+  })),
+]).then(() => { IMG.dash ||= skeletonUI(); });
+
+// Grey skeleton until real screenshots exist. Never ship it: replace with assets/screens/*.png.
+function skeletonUI() {
+  const cv = document.createElement('canvas'); cv.width = 1600; cv.height = 1000;
+  const x = cv.getContext('2d'), r = rng(5);
+  x.fillStyle = T.panel; x.fillRect(0, 0, 1600, 1000);
+  x.fillStyle = T.band; x.fillRect(0, 0, 300, 1000); x.fillRect(300, 0, 1300, 90);
+  for (let i = 0; i < 7; i++) { x.fillStyle = i === 1 ? T.accent : T.faint; x.globalAlpha = i === 1 ? 1 : 0.35; x.beginPath(); x.roundRect(40, 140 + i * 64, 160 + r() * 60, 22, 11); x.fill(); }
+  x.globalAlpha = 1;
+  for (let i = 0; i < 8; i++) {
+    const y = 140 + i * 104;
+    x.fillStyle = T.band; x.beginPath(); x.roundRect(350, y, 1200, 84, 16); x.fill();
+    x.fillStyle = i % 3 ? T.faint : T.accent; x.beginPath(); x.arc(400, y + 42, 22, 0, Math.PI * 2); x.fill();
+    x.fillStyle = T.faint; x.globalAlpha = 0.6; x.beginPath(); x.roundRect(450, y + 26, 220 + r() * 200, 16, 8); x.fill();
+    x.globalAlpha = 0.3; x.beginPath(); x.roundRect(450, y + 52, 140 + r() * 260, 12, 6); x.fill(); x.globalAlpha = 1;
+  }
+  return cv;
+}
+
+
+// ---------- smoke fixture: every expert-grammar primitive in kit.js (ambient, chapterBlock, phone,
+// laptop, callout, stackY, typingDots, idleFloat, gobo, depthBlur, focusIn, highlight, checkDot,
+// flyTag, whip, stars). Not a film: a test that they draw, stay deterministic and blur on the whip.
+const CUES = []; window.CUES = CUES; window.CUTS = [12];
+function appScreen(x, y, w, h, t) {
+  g.save(); alpha(1); g.fillStyle = '#FFFFFF'; g.fillRect(x, y, w, h);
+  g.font = fontU(w * 0.075, 700); g.fillStyle = '#111'; g.textBaseline = 'alphabetic'; g.fillText("Today's 3", x + w * 0.07, y + h * 0.12);
+  const H = { a: h * 0.16, b: h * 0.1, c: h * 0.1 };
+  const Y = stackY(t, [[0, ['a', 'b', 'c']], [3.2, ['c', 'a', 'b']]], H, { gap: h * 0.02 });
+  const col = { a: '#F5A3D8', b: '#FFE07A', c: '#2F4BE0' }, lab = { a: 'Update LinkedIn', b: 'Text Sam', c: 'Finish client homepage' };
+  for (const id of ['a', 'b', 'c']) {
+    const yy = y + h * 0.16 + Y[id];
+    card(x + w * 0.05, yy, w * 0.9, H[id], { r: w * 0.05, fill: col[id], shadow: false });
+    g.font = fontU(w * 0.05, 700); alpha(1); g.fillStyle = id === 'c' ? '#fff' : '#111'; g.fillText(lab[id], x + w * 0.1, yy + w * 0.1);
+  }
+  typingDots(x + w * 0.12, y + h * 0.8, t, { size: w * 0.03 });
+  g.restore();
+}
+const SCENES = [
+  { from: 0, to: 6, draw(t) {
+      ambient(t, { base: '#F2F1EE', pools: [{ x: 0.7, y: 0.5, r: 0.38, color: t < 3 ? '#9AA6FF' : '#F7A8D8', a: 0.35 }] });
+      chapterBlock(140, DH * 0.45, t - 0.2, { kicker: 'Capture', light: 'Add anything', bold: 'in one line.', body: 'It estimates the time, catches the due date and writes the first step.', out: 2.6, size: 72 });
+      chapterBlock(140, DH * 0.45, t - 3, { kicker: "Today's 3", light: 'Three things.', bold: 'In order.', body: 'Picked to fit the free time on your calendar.', size: 72 });
+      const f = idleFloat(t), pw = 360, rise = sp(t - 0.1, 'heavy');
+      g.save(); g.translate(DW * 0.68 + f.dx, DH * 0.08 + (1 - rise) * DH + f.dy);
+      const ph = phone(0, 0, pw, (x, y, w, h) => appScreen(x, y, w, h, t));
+      g.restore();
+      callout('Time estimated', DW * 0.68 + 40, DH * 0.3, DW * 0.6, DH * 0.3, t - 1.2, { out: 2.4 });
+      callout('Due date found', DW * 0.68 + pw - 40, DH * 0.36, DW * 0.68 + pw + 80, DH * 0.36, t - 1.4, { out: 2.4 });
+      laptop(DW * 0.06, DH * 0.72, 380, (x, y, w, h) => { g.fillStyle = '#fff'; g.fillRect(x, y, w, h); });
+  }},
+  { from: 6, to: 10, draw(t) {
+      const lt = t - 6;
+      whip(clamp((lt - 2) / 0.32), () => {
+        g.fillStyle = '#CFE3EE'; g.fillRect(0, 0, DW, DH);
+        gobo(lt, { tint: '#FFF4E0', light: 0.35 });
+        blurred(depthBlur(1, keyed(lt, [[0, 1], [0.6, 0]])), () => { g.font = fontU(26); g.fillStyle = '#8899A0'; for (let i = 0; i < 12; i++) g.fillText('reply to Dan · book dinner · call mom', 80, 80 + i * 70); });
+        focusIn('Want me to take\na few of those?', DW * 0.36, DH * 0.48, lt - 0.3, { size: 64 });
+        highlight(DW * 0.36, DH * 0.48 + 64 * 1.12 - 64, 260, 70, lt - 1.2, { color: '#F7D774', a: 0.9 });
+        checkDot(DW * 0.3, DH * 0.44, 22, lt - 1.5, { pulse: 2 });
+        const landed = flyTag('friday', DW * 0.45, DH * 0.6, DW * 0.75, DH * 0.3, lt - 0.9);
+        if (landed >= 1) { card(DW * 0.7, DH * 0.25, 220, 70, { r: 16 }); g.font = fontU(26, 600); alpha(1); g.fillStyle = T.fg; g.fillText('Fri, Oct 2', DW * 0.7 + 24, DH * 0.25 + 44); }
+      }, () => {
+        g.fillStyle = '#0D1B24'; g.fillRect(0, 0, DW, DH); stars(lt);
+        focusIn('Leave the rest to us.', DW / 2, DH / 2, lt - 2.4, { size: 80, color: '#F7D774', align: 'center' });
+      });
+  }},
+  { from: 10, to: 14, draw(t) {                            // prompt-motion helpers
+      const lt = t - 10;
+      ambient(lt, { base: '#FDFDFB', pools: [{ x: 0.5, y: 0.9, r: 0.5, color: '#B7CFEB', a: 0.6 }] });
+      const art = () => { const gr = g.createLinearGradient(0, 0, DW, DH); gr.addColorStop(0, '#F7A8D8'); gr.addColorStop(1, '#3CC8F0'); g.fillStyle = gr; g.fillRect(0, 0, DW, DH); };
+      blurred(cutBlur(t, 12), () => {
+        if (lt < 2) {
+          const tile = { x: DW * 0.62, y: DH * 0.2, w: 520, h: 600, r: 40 }, m = matchFrame(tile, 0);
+          g.save(); rrect(m.x, m.y, m.w, m.h, m.r); g.clip(); art(); g.restore();
+          glassText('Launch', DW * 0.62 + 30, DH * 0.2 + 600 + 40, 200, art, { milk: 0.3, clip: [tile.x, tile.y, tile.w, tile.h, tile.r] });
+          const icon = { x: DW * 0.28, y: DH * 0.5 };
+          for (const o of orbit(icon.x, icon.y, lt - 0.2, 4, { r: 150 })) { g.save(); g.translate(o.x, o.y); g.scale(o.s, o.s); card(-36, -36, 72, 72, { r: 20, fill: '#2F6BFF' }); g.restore(); }
+          card(icon.x - 70, icon.y - 70, 140, 140, { r: 38, fill: '#294376' });
+          glass(DW * 0.08, DH * 0.78, 560, 120, 60, art, { refract: 14 });
+          gradientText('exactly', DW * 0.1, DH * 0.86, 64, ['#2F6BFF', '#3CC8F0', '#4ED6A0']);
+          const cur = cursorPath(lt, [[0, DW * 0.5, DH * 0.2], [0.6, icon.x + 40, icon.y + 30]], [1.2]);
+          cursor(cur.x, cur.y, cur.press, 1, { hover: cur.hover, rot: cur.rot });
+        } else {
+          const k = 1 + 2.5 * (1 - arrive(lt - 2, 0.25));
+          zoomSmear(DW / 2, DH / 2, k, () => { g.font = fontD(140, 800); g.textAlign = 'center'; alpha(1); g.fillStyle = '#111'; g.fillText('Product', DW / 2, DH / 2 + 50); });
+        }
+      });
+  }},
+  { from: 14, to: 17, draw(t) {                            // product-UI helpers, part 1
+      const lt = t - 14;
+      ambient(lt, { base: '#F6F2E9', pools: [{ x: 0.3, y: 0.3, r: 0.4, color: '#F4B79A', a: 0.35 }] });
+      const w = rotateWord('Market your ', ['app', 'SaaS', 'brand', 'product'], '', 120, 170, lt, { size: 64 });
+      odometer(1284003, 120, 300, lt - 0.2, { from: 318544, size: 72 });
+      areaChart([3, 5, 4, 7, 6, 9, 8, 12, 11, 15], 120, 360, 640, 220, lt - 0.4, { color: '#2F6BFF', scrub: clamp((lt - 1.8) / 0.8), tip: '48.2K' });
+      const r = textRect('Write in markdown', 'markdown', 900, 170, 56);
+      g.font = fontD(56); alpha(1); g.fillStyle = T.fg; g.fillText('Write in markdown', 900, 170);
+      connector(r.cx, r.y + r.h + 6, 1300, 420, lt - 0.5, { color: '#A0482D' });
+      card(1180, 420, 300, 120, { r: 18 });
+      selectionBox(1180, 420, 300, 120, lt - 1.1);
+      cardSwap(lt - 0.3, 3, 1500, 120, (i, x, y) => { card(x, y, 300, 90, { r: 16 }); g.font = fontU(24, 600); alpha(1); g.fillStyle = T.fg; g.fillText(['Passport checked', 'Visa filed', 'Approved'][i], x + 24, y + 54); }, { every: 0.7 });
+      karaoke('every word lights as it is spoken', [0, 0.3, 0.6, 0.9, 1.1, 1.3, 1.5], DW / 2, 700, lt, { size: 34 });
+      slider(120, 800, 420, keyed(lt, [[0, 0.2], [0.8, 0.75]]), { label: 'Warmth' });
+      slider(120, 880, 420, 0.4, { label: 'Grain', active: false });
+      reel(5, 2, 700, 760, 200, 240, lt - 0.2, (i, x, y, cw, ch) => { g.fillStyle = ['#F7A8D8', '#FFE07A', '#2F6BFF', '#4ED6A0', '#111'][i]; g.fillRect(x, y, cw, ch); g.font = fontD(60); g.fillStyle = '#fff'; g.fillText(String(i), x + 80, y + 140); });
+      reflection(1000, () => card(1000, 820, 220, 180, { r: 20, fill: '#2F6BFF' }));
+      marquee([['Slack', 'Notion', 'Linear', 'Figma'], ['Stripe', 'GitHub', 'Zapier', 'HubSpot']], 1300, 760, 600, lt, (it, x, y) => { g.font = fontU(30, 700); alpha(1); g.fillStyle = T.fg; g.textBaseline = 'middle'; g.fillText(it, x, y); return g.measureText(it).width; });
+  }},
+  { from: 17, to: 20, draw(t) {                            // part 2: morphs, wipes, logo
+      const lt = t - 17;
+      bandWipe(clamp(lt / 0.35), () => { g.fillStyle = '#0c0f1a'; g.fillRect(0, 0, DW, DH); }, { colors: ['#1A2C3B', '#289CE8', '#BFE3FA'] });
+      if (lt < 0.35) { g.fillStyle = '#F6F2E9'; }
+      if (lt > 0.3) {
+        bendToRing(300, 300, 600, 600, 520, (lt - 0.6) / 0.6, { color: '#e8b84b', lw: 12 });
+        const A = layouts.grid(9, 1400, 500, { gap: 150 }), Bl = layouts.ring(9, 1400, 500, { r: 260 }), C = layouts.point(9, 1400, 500);
+        const P = lt < 1.6 ? layoutMorph(A, Bl, (lt - 0.6) / 1.0) : layoutMorph(Bl, C, (lt - 1.6) / 0.6, { spin: 1.5 });
+        for (const q of P) { g.save(); g.translate(q.x, q.y); g.rotate(q.r); g.scale(q.s, q.s); card(-55, -55, 110, 110, { r: 18, fill: '#e8b84b' }); g.restore(); }
+        revealFrom('Taxtello', 760, 960, 90, 4, lt - 1.9, { color: '#f6f4eb' });
+        glint(760, 900, 1200, 900, lt - 2.0, { size: 70 });
+        scan(1650, 120, 220, 300, lt - 0.5, { boxes: [{ x: 1680, y: 180, w: 120, h: 80, label: 'Onesie' }] });
+        pushSwap(clamp((lt - 1.0) / 0.25), () => { g.font = fontD(90); alpha(1); g.fillStyle = '#f6f4eb'; g.fillText('1.8x', 120, 160); }, () => { g.font = fontD(90); alpha(1); g.fillStyle = '#f6f4eb'; g.fillText('4.2x', 120, 160); });
+      }
+  }},
+];
+function background() {
+  alpha(1); g.fillStyle = T.bg; g.fillRect(0, 0, DW, DH);
+  if (T.grid) {
+    g.fillStyle = 'rgba(255,255,255,0.045)';
+    for (let x = 40; x < DW; x += 48) for (let y = 30; y < DH; y += 48) g.fillRect(x, y, 2, 2);
+  }
+}
+
+function draw(t) {
+  g.setTransform(S, 0, 0, S, 0, 0); g.filter = 'none';
+  SA = 1; g.globalAlpha = 1;
+  background();
+  for (const s of SCENES) if (t >= s.from && t < s.to) {
+    SA = 1; g.globalAlpha = 1;
+    g.save(); s.draw(t); g.restore();
+  }
+}
+window.DUR = DUR;
+window.seek = seekWith(draw);   // async: waits for any footage frames, then repaints
+
+// Live preview in a normal browser; off during headless render.
+if (!navigator.webdriver) {
+  window.ready.then(() => {
+    const t0 = performance.now();
+    (function loop() { draw(((performance.now() - t0) / 1000) % DUR); requestAnimationFrame(loop); })();
+  });
+}
+</script>

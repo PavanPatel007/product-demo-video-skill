@@ -118,7 +118,7 @@ const SCENES = [
       g.restore();
       const cur = cursorPath(t, [[0, DW + 80, DH * 0.9], [B(2), P.x + 200, P.y + 160], [B(3), P.x + 70, P.y + 22]], [B(3.5)]);
       ripple(P.x + 70, P.y + 22, t - B(3.5));
-      cursor(cur.x, cur.y, cur.press, clamp((t - B(2)) * 4));
+      cursor(cur.x, cur.y, cur.press, clamp((t - B(2)) * 4), { hover: cur.hover, rot: cur.rot });
       flood(P.x, P.y, sp(t - B(4), 'base') * 1.05, { color: T.fg });
   }},
   { from: B(4.5), to: B(15), draw(t) {                       // product: split headline + live UI in 3D, camera push
@@ -164,7 +164,7 @@ const SCENES = [
       }
       const cur = cursorPath(t, [[B(10), TOG.x + 260, TOG.y + 220], [B(11.4), TOG.x + 128, TOG.y + 6], [B(12.6), TOG.x + 210, TOG.y + 150]], [B(12)]);
       ripple(TOG.x + 128, TOG.y + 6, t - B(12));
-      cursor(cur.x, cur.y, cur.press, clamp((t - B(10.2)) * 4) * clamp((B(14.5) - t) * 4));
+      cursor(cur.x, cur.y, cur.press, clamp((t - B(10.2)) * 4) * clamp((B(14.5) - t) * 4), { hover: cur.hover, rot: cur.rot });
       g.restore();
 
       // headline, outside the camera so it stays crisp; letters leave through the same mask line

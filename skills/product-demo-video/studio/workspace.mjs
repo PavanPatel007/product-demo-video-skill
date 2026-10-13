@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// Where a video gets made. The user's folder (ROOT) only ever receives the final MP4s. Everything
+// Where a video gets made. The user's folder (ROOT) only ever receives the final MP4s (and the
+// .srt captions when there's a voiceover). Everything
 // else (the film's code, captures, audio, drafts) lives in a workspace under PDV_HOME, default
 // ~/.cache/product-demo-video/projects/<name>, so follow-up edits stay a one-line change.
 //
@@ -36,6 +37,12 @@ if (cmd === 'init') {
     cpSync(studio, work, { recursive: true, filter: (src) => !/node_modules|\.DS_Store/.test(src) });
     for (const d of ['assets/screens', 'audio', 'docs', 'refs', 'out']) mkdirSync(join(work, d), { recursive: true });
     for (const f of ['mix.sh', 'check.sh']) chmodSync(join(work, f), 0o755);
+  } else {
+    // Reused workspace: refresh the tools, kit and rules so a follow-up gets the current skill,
+    // but never the film itself (index.html) or anything the film made (assets, audio, docs, out).
+    cpSync(studio, work, { recursive: true, filter: (src) => !/node_modules|\.DS_Store/.test(src) && src !== join(studio, 'index.html') });
+    for (const f of ['mix.sh', 'check.sh']) chmodSync(join(work, f), 0o755);
+    console.log('reused workspace: studio tools and kit refreshed, index.html and assets untouched');
   }
   const now = new Date().toISOString();
   writeFileSync(join(work, '.pdv.json'), JSON.stringify({ name, root, created: meta(work).created || now, updated: now }, null, 1));
@@ -55,7 +62,7 @@ if (cmd === 'init') {
     console.log(`browser: ${browser}`);
   }
   console.log(`WORK=${work}   ${fresh ? 'new workspace' : 'existing workspace (follow-up edit)'}`);
-  console.log(`ROOT=${root}   final MP4s go here, nothing else`);
+  console.log(`ROOT=${root}   final MP4s (and captions) go here, nothing else`);
 } else if (cmd === 'clean') {
   need();
   if (!existsSync(work)) { console.error(`no workspace ${work}`); process.exit(1); }

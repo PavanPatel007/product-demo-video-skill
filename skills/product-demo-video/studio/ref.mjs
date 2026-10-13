@@ -1,4 +1,4 @@
-// node ref.mjs <video.mp4 | X/Twitter post URL | direct .mp4 URL> [--name launch_ref]
+// node ref.mjs <video.mp4 | X/Twitter post URL | prompt-motion.com entry | direct .mp4 URL> [--name launch_ref]
 // Turns a reference into things the agent can read: refs/<name>/sheet.png (2 frames per second),
 // cuts, holds and motion rhythm, dominant palette, loudness, and (for X posts) the post text,
 // which often contains the creator's prompt. Take the grammar, never the content.
@@ -7,15 +7,23 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { basename, extname, join } from 'node:path';
 import { audit } from './motion-audit.mjs';
 import { arg } from './lib/env.mjs';
+import { isEntry, readEntry } from './lib/gallery.mjs';
 
 const src = process.argv[2];
-if (!src || src.startsWith('--')) { console.log('usage: node ref.mjs <video.mp4 | https://x.com/user/status/ID | https://.../clip.mp4> [--name ref]'); process.exit(1); }
+if (!src || src.startsWith('--')) { console.log('usage: node ref.mjs <video.mp4 | https://x.com/user/status/ID | https://prompt-motion.com/<entry> | https://.../clip.mp4> [--name ref]'); process.exit(1); }
 const ff = (args) => execFileSync('ffmpeg', ['-v', 'error', '-y', ...args], { maxBuffer: 1 << 28 });
 const has = (bin) => { try { execFileSync('which', [bin], { stdio: 'ignore' }); return true; } catch { return false; } };
 
-let file = src, postText = '', name = arg('name');
+let file = src, postText = '', name = arg('name'), promptText = '';
 const x = src.match(/(?:x|twitter)\.com\/([^/]+)\/status\/(\d+)/);
-if (x) {
+if (isEntry(src)) {
+  const e = await readEntry(src);
+  if (!e.video) throw new Error('that prompt-motion.com entry has no video link');
+  name ||= basename(new URL(src).pathname).toLowerCase();
+  postText = `${e.title} · ${e.by} · ${[e.model, e.stack, e.effort && `effort ${e.effort}`, e.posted].filter(Boolean).join(' · ')}\nTags: ${e.tags.join(', ')}\nEntry: ${src}\nPost: ${e.post}`;
+  promptText = e.prompt;
+  file = await download(e.video, name);
+} else if (x) {
   const r = await fetch(`https://api.fxtwitter.com/status/${x[2]}`);
   if (!r.ok) throw new Error(`could not read the post (HTTP ${r.status}); download the video and pass the file instead`);
   const tw = (await r.json()).tweet;
@@ -72,6 +80,25 @@ const lufs = hasAudio
   : 'no audio';
 
 const { report, text } = audit(file, { outDir: dir, maxHold: 1, endHold: 3 });
+// A 2 fps sheet shows layouts, not motion. Strips at 12 fps (timestamped) cover the opening and the
+// busiest seconds, so the agent can read how things move: what blurs, what overshoots, what leads.
+const moves = join(dir, 'moves'); mkdirSync(moves, { recursive: true });
+const peaks = [0];
+for (const i of report.energy.map((e, i) => [e, i]).sort((a, b) => b[0] - a[0]).map(([, i]) => i)) {
+  if (peaks.length >= 7) break;
+  if (peaks.every((p) => Math.abs(p - i) >= 2) && i < dur - 0.5) peaks.push(i);
+}
+if (dur > 4 && peaks.every((p) => Math.abs(p - (dur - 2)) >= 2)) peaks.push(Math.floor(dur - 2));
+const stamp = "drawtext=text='%{pts\\:hms}':x=8:y=8:fontsize=22:fontcolor=red:box=1:boxcolor=white";
+const strips = [];
+for (const p of peaks.sort((a, b) => a - b)) {
+  const from = Math.max(0, p - 0.25), out = join(moves, `${from.toFixed(2).padStart(6, '0')}s.png`);
+  const tile = `fps=12,scale=${fmt === '9:16' ? 220 : 480}:-1,setpts=PTS+${from}/TB`;
+  try { ff(['-ss', String(from), '-t', '1.5', '-i', file, '-vf', `${tile},${stamp},tile=6x3:padding=3:color=white`, '-frames:v', '1', out]); }
+  catch { ff(['-ss', String(from), '-t', '1.5', '-i', file, '-vf', `${tile},tile=6x3:padding=3:color=white`, '-frames:v', '1', out]); }   // ffmpeg without drawtext
+  strips.push(`${from.toFixed(2)}-${(from + 1.5).toFixed(2)} s → \`${out}\``);
+}
+
 const shotLens = [0, ...cuts, dur].map((v, i, a) => (i ? +(v - a[i - 1]).toFixed(2) : null)).filter((v) => v !== null);
 
 const md = [
@@ -84,13 +111,24 @@ const md = [
   `- Holds over 1 s: ${report.holds.length ? report.holds.map((h) => `${h.from}-${h.to}s`).join(', ') : 'none'}`,
   `- Dominant colors: ${colors.join(' ')}`,
   '',
+  '## Motion strips (12 fps, 1.5 s each: the opening and the busiest seconds)',
+  '',
+  ...strips.map((s) => `- ${s}`),
+  '',
   postText ? `## Post text (may contain the creator's prompt)\n\n${postText}\n` : '',
+  promptText ? `## Creator's prompt\n\nSaved to \`${join(dir, 'prompt.md')}\` (${promptText.length} characters). Read it: it names the techniques, timings and\nbans the creator used. Take the grammar, not the wording; link the entry, don't copy the prompt into a repo.\n` : '',
   '## For the agent',
   '',
-  `Open \`${join(dir, 'sheet.png')}\` (2 frames per second, read left to right) and write into`,
-  '`docs/style_guide.md`: palette, type (family feel, weight, tracking, case), how text enters and',
-  'leaves, transition types between scenes, camera moves, UI treatment (flat, 3D tilt, depth blur),',
-  'pacing (beats per change, longest hold), sound feel. Take the grammar, never the content, logos or characters.',
+  `Open \`${join(dir, 'sheet.png')}\` (2 frames per second, read left to right), then every strip in`,
+  `\`${moves}/\`, and write into \`docs/style_guide.md\`:`,
+  '- The story device: what object or idea opens the film, how it comes back, how the ending pays it off.',
+  '- The world: background (light pools, a surface, window light, a colour per chapter), and how it changes.',
+  '- Palette, type (family feel, weight pairing, tracking, case), how text enters and leaves.',
+  '- Each transition, frame by frame from the strips: what carries across, what blurs (lens or motion), what leads.',
+  '- Camera moves, UI treatment (device frame, extracted element, 3D tilt, depth of field), what moves inside the UI.',
+  '- Pacing: where it rushes and where it breathes (longest hold and what keeps it alive), sound feel.',
+  'Take the grammar, never the content, logos or characters.',
 ].join('\n');
 writeFileSync(join(dir, 'analysis.md'), md + '\n');
+if (promptText) writeFileSync(join(dir, 'prompt.md'), promptText + '\n');
 console.log(md);

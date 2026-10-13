@@ -1,10 +1,16 @@
 #!/usr/bin/env bash
-# usage: ./check.sh <video.mp4> [strip_start_seconds] [--loop]
+# usage: ./check.sh <video.mp4> [strip_start_seconds] [--loop] [--max-hold 2]
 # Writes images the agent must open and look at (contact sheet, motion strip, phone-size test,
-# poster) and runs the motion audit (holds over 1 s, single-frame pops, loop seam).
+# poster) and runs the motion audit (holds over 1 s, single-frame pops, flashes, loop seam).
 set -euo pipefail
 v=$1 s=${2:-2} d=out/check
-loop=""; for a in "$@"; do [ "$a" = "--loop" ] && loop="--loop"; done
+case "$s" in --*) s=2 ;; esac
+loop="" hold=""; prev=""
+for a in "$@"; do
+  [ "$a" = "--loop" ] && loop="--loop"
+  [ "$prev" = "--max-hold" ] && hold="--max-hold $a"
+  prev=$a
+done
 here="$(cd "$(dirname "$0")" && pwd)"
 mkdir -p "$d"
 dur=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$v")
@@ -16,4 +22,4 @@ ffmpeg -y -loglevel error -i "$v" -vf "fps=1,scale=360:-1,tile=5x3" -frames:v 1 
 ffmpeg -y -loglevel error -ss "$(awk -v d="$dur" 'BEGIN { print d / 3 }')" -i "$v" -frames:v 1 "$d/poster.png"
 echo "wrote $d/{contact,strip,phone,poster}.png (duration ${dur}s)"
 cues=""; [ -f sfx_cues.json ] && cues="--cues sfx_cues.json"
-node "$here/motion-audit.mjs" "$v" --out "$d" $loop $cues || true
+node "$here/motion-audit.mjs" "$v" --out "$d" $loop $hold $cues || true

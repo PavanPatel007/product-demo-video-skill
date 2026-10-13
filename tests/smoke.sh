@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # End-to-end check of the studio: scaffold → doctor → music → stills (beats, 2 themes, 3 formats,
 # mascot) → render → browser → vector capture → code scan → mobile → sfx (synth + file cue) → voiceover (local + missing-key path) → mix with
-# ducking → loudness → check + motion audit → ref.mjs → cost report (Claude fixture, Codex
+# ducking → loudness → captions → check + motion audit (holds, flashes) → ref.mjs → cost report (Claude fixture, Codex
 # fixture, manual). Uses a temp folder; leaves nothing behind.
 set -euo pipefail
 repo="$(cd "$(dirname "$0")/.." && pwd)"
@@ -66,6 +66,14 @@ r=$(node render.mjs --w 960 --h 540 --from 1.9 --to 2.5 --out out/blur.mp4)
 echo "$r" | grep -q "samples/frame" || { echo "$r"; fail "adaptive render printed no sample stats"; }
 [ -s out/blur.mp4 ] || fail "out/blur.mp4 missing"
 ok "--verify deterministic; $c cues exported; --sub auto on the flood ($(echo "$r" | grep -o '[0-9.]* samples/frame'))"
+
+step "expert grammar kit"
+mkdir -p "$tmp/kit" && cp -R "$studio/." "$tmp/kit/" && ln -s "$tmp/node_modules" "$tmp/kit/node_modules" 2>/dev/null || true
+cp "$fx/expert-grammar.html" "$tmp/kit/index.html"
+( cd "$tmp/kit" && node render.mjs --w 960 --h 540 --stills 2.2,7.4,9.6,10.9,12.05,16.9,17.85,19.95 >/dev/null ) || fail "expert-grammar fixture failed to render"
+[ "$(ls "$tmp"/kit/out/stills/*_t*.png | wc -l | tr -d ' ')" -eq 8 ] || fail "expert-grammar stills missing"
+( cd "$tmp/kit" && node render.mjs --w 640 --h 360 --verify ) | grep -q "deterministic" || fail "expert-grammar primitives are not deterministic"
+ok "expert grammar (world, lens, chapters, callouts, in-app motion, cuts, glass, odometer, charts, wipes, morphs) draws and stays deterministic"
 
 step "footage"
 ffmpeg -y -loglevel error -f lavfi -i testsrc2=s=320x180:r=30:d=1 clip.mp4
@@ -150,19 +158,37 @@ lufs=$(ffmpeg -nostats -i out/final.mp4 -af ebur128 -f null - 2>&1 | awk '/Integ
 awk -v l="$lufs" 'BEGIN { exit !(l > -15.5 && l < -12.5) }' || fail "loudness $lufs LUFS, expected about -14"
 ok "out/final.mp4 at $lufs LUFS$([ $voiced = 1 ] && echo ', music ducked under voice')"
 
+step "captions"
+echo '[{"i":0,"t":0.3,"end":2.1,"text":"Stop losing leads."},{"i":1,"t":3.0,"end":8.4,"text":"Every lead from every form, inbox and ad lands in one place, sorted by who is ready to buy right now."}]' >out/timing.json
+node captions.mjs --timing out/timing.json --out out/captions.srt --mux out/final.mp4 >/dev/null
+node -e '
+const s = require("fs").readFileSync("out/captions.srt", "utf8").trim().split(/\n\n/);
+const rows = s.flatMap((c) => c.split("\n").slice(2));
+if (s.length !== 3 || rows.some((r) => r.length > 42) || s.some((c) => c.split("\n").length > 4)) { console.error(s); process.exit(1); }
+if (!s[0].includes("00:00:00,300 --> 00:00:02,100") || !s[2].includes("--> 00:00:08,400")) { console.error(s); process.exit(1); }
+' || fail "captions.srt cues wrong"
+[ "$(ffprobe -v error -select_streams s -show_entries stream=codec_name -of csv=p=0 out/final.mp4)" = "mov_text" ] || fail "no subtitle track in out/final.mp4"
+ok "out/captions.srt (2 lines x 42 chars per cue, timed to each line) + subtitle track in the MP4"
+
 step "check"
 ./check.sh out/final.mp4 3 >/dev/null
 for f in contact strip phone poster; do [ -s "out/check/$f.png" ] || fail "check.sh: $f.png missing"; done
 [ -s out/check/motion.txt ] && [ -s out/check/motion.json ] || fail "check.sh: motion audit missing"
 grep -q "holds: none" out/check/motion.txt || { cat out/check/motion.txt; fail "template has a hold over 1 s"; }
-ok "contact, strip, phone, poster; motion audit finds no holds in the template"
+grep -q "flashes: none" out/check/motion.txt || { cat out/check/motion.txt; fail "template flashes more than 3 times a second"; }
+ffmpeg -y -loglevel error -f lavfi -i "nullsrc=s=320x180:r=30:d=2" -vf "geq=lum='255*lt(mod(N\,6)\,3)':cb=128:cr=128,format=yuv420p" out/strobe.mp4
+node motion-audit.mjs out/strobe.mp4 --out out/strobe >/dev/null && fail "a 5 Hz strobe passed the motion audit"
+grep -q "FLASHES" out/strobe/motion.txt || fail "a 5 Hz strobe wasn't reported as flashes"
+ok "contact, strip, phone, poster; motion audit finds no holds or flashes in the template, catches a strobe"
 
 step "reference analysis"
 node ref.mjs out/final.mp4 --name smoke >/dev/null
 [ -s refs/smoke/sheet.png ] && [ -s refs/smoke/analysis.md ] || fail "ref.mjs outputs missing"
 grep -q "Hard cuts: none" refs/smoke/analysis.md || { cat refs/smoke/analysis.md; fail "template should read as one continuous take"; }
 grep -q "LUFS" refs/smoke/analysis.md || fail "ref.mjs loudness missing"
-ok "ref.mjs: sheet, cuts (continuous take), loudness, motion"
+ls refs/smoke/moves/*.png >/dev/null 2>&1 || fail "ref.mjs wrote no motion strips"
+grep -q "Motion strips" refs/smoke/analysis.md || fail "analysis.md does not list the motion strips"
+ok "ref.mjs: sheet, 12 fps motion strips, cuts (continuous take), loudness, motion"
 
 step "cost report"
 r=$(node cost-report.mjs --video out/final.mp4 --source claude --claude-dir "$fx/claude")
@@ -200,6 +226,9 @@ echo "$w" | grep -q "^browser: " || { echo "$w"; fail "init didn't report the br
 (cd "$work" && ELEVENLABS_API_KEY= node doctor.mjs) | grep "ElevenLabs" | grep -q "ready" || fail "doctor didn't read the key from the user's folder .env"
 (cd "$work" && node doctor.mjs) | grep -q "smoke-not-a-key" && fail "doctor printed a key value"
 (cd "$work" && node render.mjs --w 960 --h 540 --stills 1 >/dev/null) && [ -s "$work/out/stills/contact.png" ] || fail "render in the workspace can't find the shared Playwright"
+echo "// my film" >>"$work/index.html" && echo "// stale" >"$work/lib/kit.js"
+(cd "$root" && PDV_HOME="$pdv" node "$studio/workspace.mjs" init "Smoke Test" --no-install) | grep -q "refreshed" || fail "re-init didn't refresh the studio"
+grep -q "// my film" "$work/index.html" && cmp -s "$work/lib/kit.js" "$studio/lib/kit.js" || fail "re-init must keep index.html and refresh lib/kit.js"
 cp out/final.mp4 "$work/out/final_16x9.mp4" && cp out/final.mp4 "$root/smoke-test-16x9.mp4" && mkdir -p "$work/refs/x" "$work/out/check" && touch "$work/out/check/poster.png"
 (cd "$root" && PDV_HOME="$pdv" node "$studio/workspace.mjs" clean "Smoke Test") | grep -q "freed" || fail "clean printed nothing"
 [ ! -e "$work/out/final_16x9.mp4" ] && [ ! -e "$work/out/stills" ] && [ ! -e "$work/refs" ] || fail "clean left drafts behind"
@@ -207,7 +236,7 @@ cp out/final.mp4 "$work/out/final_16x9.mp4" && cp out/final.mp4 "$root/smoke-tes
 PDV_HOME="$pdv" node "$studio/workspace.mjs" list | grep -q "smoke-test" || fail "list doesn't show the workspace"
 PDV_HOME="$pdv" node "$studio/workspace.mjs" clean smoke-test --all >/dev/null && [ ! -e "$work" ] || fail "clean --all left the workspace"
 [ "$(ls -A "$root" | sort | tr '\n' ' ')" = ".env smoke-test-16x9.mp4 " ] || fail "user's folder has extra files: $(ls -A "$root")"
-ok "init in PDV_HOME, user's folder untouched, key from its .env, shared Playwright, clean keeps source, clean --all"
+ok "init in PDV_HOME, user's folder untouched, key from its .env, shared Playwright, re-init refreshes tools not the film, clean keeps source, clean --all"
 
 echo
 echo "smoke test passed: $pass checks"
